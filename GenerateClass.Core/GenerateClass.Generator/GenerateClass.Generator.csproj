@@ -10,6 +10,10 @@
 		<OutputItemType>Analyzer</OutputItemType>
 		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 		<UserSecretsId>625b2434-975c-4d22-bfb2-119c537638dc</UserSecretsId>
+ 
+		<!--<DebugType>portable</DebugType>
+		<DebugSymbols>true</DebugSymbols>
+		<RunGeneratorsOutOfProcess>true</RunGeneratorsOutOfProcess>-->
 	</PropertyGroup>
 
 	<ItemGroup>

@@ -1,6 +1,6 @@
 ﻿namespace MyApp.GeneratedDtos
 {
-	public class Decimal
+	public class SecondText
 	{
 		/// <summary>
 		/// Id
@@ -11,6 +11,11 @@
 		/// Name
 		/// </summary>
 		public string Name { get; set; }
+
+		/// <summary>
+		/// Prop1
+		/// </summary>
+		public MyRandomObject1 Prop1 { get; set; }
 
 	}
 }

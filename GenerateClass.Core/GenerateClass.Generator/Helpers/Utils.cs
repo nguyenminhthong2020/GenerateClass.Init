@@ -1,7 +1,9 @@
-﻿using Microsoft.CodeAnalysis;
+﻿using GenerateClass.Generator.Data;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Text;
 
@@ -10,14 +12,16 @@ namespace GenerateClass.Generator.Helpers
     public static class Utils
     {
         /// <summary>
-        /// 
+        /// Attempts to extract a string representation from a given expression syntax node.
+        /// Handles various expression types such as literals, typeof, nameof, constants, and identifiers.
         /// </summary>
         /// <param name="expr"></param>
         /// <param name="sm"></param>
         /// <returns></returns>
         public static string? TryGetStringFromExpression(ExpressionSyntax? expr, SemanticModel sm)
         {
-            if (expr is null) return null;
+            if (expr is null)
+                return null;
 
             // string literal "abc"
             if (expr is LiteralExpressionSyntax lit)
@@ -28,7 +32,7 @@ namespace GenerateClass.Generator.Helpers
             {
                 var tSym = sm.GetTypeInfo(tos.Type).Type;
                 if (tSym is not null)
-                    return FriendlyTypeName(tSym);
+                    return GetFriendlyTypeName(tSym);
             }
 
             // nameof(Xyz) => "Xyz"
@@ -60,32 +64,13 @@ namespace GenerateClass.Generator.Helpers
             return expr.ToString().Trim('\"');
         }
 
-        //public static string FriendlyTypeName(ITypeSymbol tSym)
-        //{
-        //    // Với alias C# cơ bản
-        //    switch (tSym.SpecialType)
-        //    {
-        //        case SpecialType.System_Int32: return "int";
-        //        case SpecialType.System_Int64: return "long";
-        //        case SpecialType.System_String: return "string";
-        //        case SpecialType.System_Boolean: return "bool";
-        //            // thêm các alias khác nếu cần
-        //    }
-
-        //    // generic type: List<Student>
-        //    if (tSym is INamedTypeSymbol named && named.IsGenericType)
-        //    {
-        //        var name = named.Name; // List
-        //        var args = string.Join(", ", named.TypeArguments.Select(FriendlyTypeName));
-        //        return $"{name}<{args}>";
-        //    }
-
-        //    // mặc định trả full name
-        //    return tSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
-        //               .Replace("global::", "");
-        //}
-
-        public static string FriendlyTypeName(ITypeSymbol t)
+        /// <summary>
+        /// Returns a simplified, human-readable name for a given type symbol.
+        /// Handles common aliases, nullable types, arrays, tuples, generics, and nullable reference types.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <returns></returns>
+        public static string GetFriendlyTypeName(ITypeSymbol t)
         {
             // use aliases for common types
             switch (t.SpecialType)
@@ -107,25 +92,42 @@ namespace GenerateClass.Generator.Helpers
                 namedNullable.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T)
             {
                 var inner = namedNullable.TypeArguments[0];
-                return FriendlyTypeName(inner) + "?";
+                return GetFriendlyTypeName(inner) + "?";
             }
 
             // array
             // multi-dimensional array, jagged array
             if (t is IArrayTypeSymbol arr)
             {
-                var elem = FriendlyTypeName(arr.ElementType);
+                var elem = GetFriendlyTypeName(arr.ElementType);
                 if (arr.Rank == 1)
                     return elem + "[]";
                 else
                     return elem + "[" + new string(',', arr.Rank - 1) + "]";
             }
 
+            // tuple type
+            // ValueTuple<int, string, string, bool>  ==> (int, string, string, bool) 
+            if (t is INamedTypeSymbol tupleType && tupleType.IsTupleType)
+            {
+                // NEW: normalize each tuple element: if anonymous or null -> object
+                // (1, null, "abc") --> (int, object, string)
+                var elements = tupleType.TupleElements
+                    .Select(e =>
+                    {
+                        var et = e.Type;
+                        if (et is null || et.IsAnonymousType || (et is INamedTypeSymbol en && en.IsAnonymousType))
+                            return "object";
+                        return GetFriendlyTypeName(et);
+                    });
+                return $"({string.Join(", ", elements)})";
+            }
+
             // generic type: List<Student>
             if (t is INamedTypeSymbol named && named.IsGenericType)
             {
                 var name = named.Name; // List, Dictionary, etc
-                var args = string.Join(", ", named.TypeArguments.Select(FriendlyTypeName));
+                var args = string.Join(", ", named.TypeArguments.Select(GetFriendlyTypeName));
                 return $"{name}<{args}>";
             }
 
@@ -134,12 +136,157 @@ namespace GenerateClass.Generator.Helpers
             if (t.NullableAnnotation == NullableAnnotation.Annotated && !t.IsValueType)
             {
                 var bare = t.WithNullableAnnotation(NullableAnnotation.None);
-                return FriendlyTypeName(bare) + "?";
+                return GetFriendlyTypeName(bare) + "?";
             }
 
             // fallback to minimally qualified (e.g. MyNamespace.MyType)
             return t.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat).Replace("global::", "");
         }
+
+        /// <summary>
+        /// Safely infer a non-null ITypeSymbol for a given ExpressionSyntax.
+        /// - Handles tuple expressions specially: rebuilds a ValueTuple type from element expressions.
+        /// - If any tuple element has an explicit name (a: ...), we supply a full name array
+        ///   (using developer names where present and "ItemN" for unnamed elements).
+        /// - Falls back to NormalizeTypeAnonymousSafe(...) (which itself falls back to object)
+        ///   for anonymous/error/null element types.
+        /// </summary>
+        [Obsolete("This method is currently unused but kept for future use.", false)]
+        private static ITypeSymbol GetExpressionTypeSafeOld(ExpressionSyntax expr, SemanticModel semanticModel)
+        {
+            if (expr is null)
+                return semanticModel.Compilation.GetSpecialType(SpecialType.System_Object);
+
+            // 1) Special-case tuple literal syntax: (a, b, null, ...)
+            if (expr is TupleExpressionSyntax tupleExpr)
+            {
+                // Normalize each element type (recursively). Use the element expression as context.
+                var elemTypes = tupleExpr.Arguments
+                    .Select(arg =>
+                    {
+                        var raw = semanticModel.GetTypeInfo(arg.Expression).Type;
+                        return NormalizeTypeAnonymousSafe(raw, semanticModel, arg.Expression);
+                    })
+                    .ToImmutableArray();
+
+                // If no element has a name (all are positional), use the simpler overload.
+                bool anyNamed = tupleExpr.Arguments.Any(a => a.NameColon is not null);
+                if (!anyNamed)
+                {
+                    return semanticModel.Compilation.CreateTupleTypeSymbol(elemTypes);
+                }
+
+                // Otherwise build an element-names array where named elements keep the developer name
+                // and unnamed ones get a default "ItemN" name (Item1, Item2, ...).
+                var names = tupleExpr.Arguments
+                    .Select((a, idx) => string.IsNullOrEmpty(a.NameColon?.Name.Identifier.ValueText)
+                        ? $"Item{idx + 1}"
+                        : a.NameColon!.Name.Identifier.ValueText!)
+                    .ToImmutableArray();
+
+#pragma warning disable CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
+                return semanticModel.Compilation.CreateTupleTypeSymbol(elemTypes, names);
+#pragma warning restore CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
+            }
+
+            // 2) Default path: ask semantic model and normalize
+            var rawType = semanticModel.GetTypeInfo(expr).Type;
+            var normalized = NormalizeTypeAnonymousSafe(rawType, semanticModel, expr);
+
+            // final guard: never return null
+            return normalized ?? semanticModel.Compilation.GetSpecialType(SpecialType.System_Object);
+        }
+
+        // /// <summary>
+        // /// Safely infer a non-null ITypeSymbol for a given ExpressionSyntax.
+        // /// - Handles TupleExpressionSyntax (including nested tuples) by constructing a tuple symbol
+        // ///   with normalized element types (fallback to object for null/anonymous).
+        // /// - Returns object for null literal or when the type cannot be resolved.
+        // /// </summary>
+        public static ITypeSymbol GetExpressionTypeSafe(ExpressionSyntax expr, SemanticModel sm)
+        {
+            if (expr is null)
+                return sm.Compilation.GetSpecialType(SpecialType.System_Object);
+
+            // 1) Tuple literal, e.g. (1, "a", (2, null))
+            if (expr is TupleExpressionSyntax tupleExpr)
+            {
+                // Collect element types and names (if provided)
+                var elemTypesBuilder = ImmutableArray.CreateBuilder<ITypeSymbol>(tupleExpr.Arguments.Count);
+                var namesBuilder = ImmutableArray.CreateBuilder<string?>(tupleExpr.Arguments.Count);
+                bool anyNames = false;
+
+                foreach (var arg in tupleExpr.Arguments)
+                {
+                    // Recursively get element type (handles nested tuple)
+                    var elemType = GetExpressionTypeSafe(arg.Expression, sm) ?? sm.Compilation.GetSpecialType(SpecialType.System_Object);
+
+                    // Normalize anonymous to object if needed (optional: you may call your NormalizeTypeAnonymousSafe here)
+                    // elemType = NormalizeTypeAnonymousSafe(elemType, sm, arg.Expression);
+
+                    elemTypesBuilder.Add(elemType);
+
+                    string? name = arg.NameColon?.Name.Identifier.ValueText;
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        anyNames = true;
+                        namesBuilder.Add(name);
+                    }
+                    else
+                    {
+                        // add null for unnamed elements — IMPORTANT: use null, not empty string
+                        namesBuilder.Add(null);
+                    }
+                }
+
+                var elemTypes = elemTypesBuilder.MoveToImmutable();
+
+                try
+                {
+                    if (!anyNames)
+                    {
+                        // no element names — use overload without names
+                        return sm.Compilation.CreateTupleTypeSymbol(elemTypes);
+                    }
+                    else
+                    {
+                        // create ImmutableArray<string> that may contain nulls for unnamed elements
+                        var namesArrBuilder = ImmutableArray.CreateBuilder<string>(namesBuilder.Count);
+                        foreach (var nm in namesBuilder)
+                        {
+                            // namesBuilder contains string? — it's ok to add null here
+#pragma warning disable CS8604 // Possible null reference argument.
+                            namesArrBuilder.Add(nm);
+#pragma warning restore CS8604 // Possible null reference argument.
+                        }
+
+                        var namesArr = namesArrBuilder.MoveToImmutable();
+#pragma warning disable CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
+                        return sm.Compilation.CreateTupleTypeSymbol(elemTypes, namesArr);
+#pragma warning restore CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
+                    }
+                }
+                catch
+                {
+                    // If for some reason creating a tuple symbol fails, fallback to object
+                    return sm.Compilation.GetSpecialType(SpecialType.System_Object);
+                }
+            }
+
+            // 2) null literal => object
+            var constVal = sm.GetConstantValue(expr);
+            if (constVal.HasValue && constVal.Value == null)
+                return sm.Compilation.GetSpecialType(SpecialType.System_Object);
+
+            // 3) Default: use semantic model
+            var t = sm.GetTypeInfo(expr).Type;
+            if (t != null)
+                return t;
+
+            // fallback
+            return sm.Compilation.GetSpecialType(SpecialType.System_Object);
+        }
+
 
         /// <summary>
         /// Find object initializers and assignments in the method body to get the properties assigned to this type.
@@ -149,22 +296,20 @@ namespace GenerateClass.Generator.Helpers
         /// <param name="compilation"></param>
         /// <param name="map"></param>
         /// <param name="methodSymbol"></param>
-        public static void CollectTypeAndMembers(
-        ITypeSymbol type,
-        MethodDeclarationSyntax methodSyntax,
-        Compilation compilation,
-        //Dictionary<INamedTypeSymbol, HashSet<string>> map,
-        Dictionary<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> map,
-        Dictionary<INamedTypeSymbol, List<(string Name, ITypeSymbol Type)>> mapCtor,
-        Dictionary<INamedTypeSymbol, HashSet<string>> mapNamespaces,
-        IMethodSymbol methodSymbol)
+        [Obsolete("This method is currently unused but kept for future use.", false)]
+        public static void CollectTypeAndMembersOld(
+            ITypeSymbol type,
+            MethodDeclarationSyntax methodSyntax,
+            Compilation compilation,
+            Dictionary<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> map,
+            Dictionary<INamedTypeSymbol, List<(string CtorKey, List<(string Name, ITypeSymbol Type)> Params)>> mapCtor,
+            Dictionary<INamedTypeSymbol, HashSet<string>> mapNamespaces,
+            IMethodSymbol methodSymbol)
         {
             INamedTypeSymbol? namedType = UnwrapCollection(type) ?? type as INamedTypeSymbol;
             if (namedType is null)
                 return;
 
-            //if (!map.ContainsKey(namedType))
-            //    map[namedType] = new HashSet<string>();
             if (!map.ContainsKey(namedType))
                 map[namedType] = new Dictionary<string, ITypeSymbol?>();
 
@@ -190,7 +335,6 @@ namespace GenerateClass.Generator.Helpers
                             {
                                 // use semantic model to get property name correctly
                                 var leftSym = semanticModel.GetSymbolInfo(assign.Left).Symbol as IPropertySymbol;
-                                // string propName = leftSym?.Name ?? assign.Left.ToString().Split('.').Last();
                                 string propName;
                                 if (leftSym is not null)
                                 {
@@ -212,9 +356,9 @@ namespace GenerateClass.Generator.Helpers
                                     propName = assign.Left.ToString().Split('.').Last();
                                 }
 
-                                // map[namedType].Add(propName);
-                                ITypeSymbol? rightType = semanticModel.GetTypeInfo(assign.Right).Type;
-                                rightType = NormalizeTypeAnonymousSafe(rightType, semanticModel);
+                                //ITypeSymbol? rightType = semanticModel.GetTypeInfo(assign.Right).Type;
+                                var rightType = GetExpressionTypeSafe(assign.Right, semanticModel);
+                                rightType = NormalizeTypeAnonymousSafe(rightType, semanticModel, assign.Right);
                                 rightType = NormalizeMultiDimensionalArrayType(rightType, semanticModel);
                                 map[namedType][propName] = rightType;
                                 GetNamespace(rightType, mapNamespaces, namedType);
@@ -232,8 +376,9 @@ namespace GenerateClass.Generator.Helpers
                             if (arg.NameColon is not null)
                             {
                                 string propName = arg.NameColon.Name.Identifier.Text;
-                                ITypeSymbol? argType = semanticModel.GetTypeInfo(arg.Expression).Type;
-                                argType = NormalizeTypeAnonymousSafe(argType, semanticModel);
+                                // ITypeSymbol? argType = semanticModel.GetTypeInfo(arg.Expression).Type;
+                                var argType = GetExpressionTypeSafe(arg.Expression, semanticModel);
+                                argType = NormalizeTypeAnonymousSafe(argType, semanticModel, arg.Expression);
                                 argType = NormalizeMultiDimensionalArrayType(argType, semanticModel);
                                 map[namedType][propName] = argType;
 
@@ -244,7 +389,22 @@ namespace GenerateClass.Generator.Helpers
 
                         if (ctorParams.Count > 0)
                         {
-                            mapCtor[namedType] = ctorParams;
+                            string ctorKey = string.Join(",", ctorParams.Select(pram => pram.Name).OrderBy(x => x));
+                            if (!mapCtor.ContainsKey(namedType))
+                            {
+                                mapCtor[namedType] =
+                                [
+                                    (CtorKey: ctorKey, Params: ctorParams)
+                                ];
+                            }
+                            else
+                            {
+                                if (!mapCtor[namedType].Any(ctor => ctor.CtorKey.Equals(ctorKey)))
+                                {
+                                    //mapCtor[namedType].Add((CtorKey: ctorKey, Params: ctorParams));
+                                    mapCtor[namedType] = mapCtor[namedType].Append((CtorKey: ctorKey, Params: ctorParams)).ToList();
+                                }
+                            }
                         }
                     }
                 }
@@ -255,17 +415,6 @@ namespace GenerateClass.Generator.Helpers
                                                                     .OfType<AssignmentExpressionSyntax>();
             foreach (AssignmentExpressionSyntax assign in assignments)
             {
-                //ISymbol? leftSymbol = semanticModel.GetSymbolInfo(assign.Left).Symbol;
-                //if (leftSymbol is IPropertySymbol propSym &&
-                //    propSym.ContainingType is not null &&
-                //    SymbolEqualityComparer.Default.Equals(UnwrapCollection(propSym.ContainingType), namedType))
-                //{
-                //    // map[namedType].Add(propSym.Name);
-
-                //    var rightType = semanticModel.GetTypeInfo(assign.Right).Type;
-                //    map[namedType][propSym.Name] = rightType;
-                //}
-
                 ISymbol? leftSymbol = semanticModel.GetSymbolInfo(assign.Left).Symbol;
                 string propName;
 
@@ -288,7 +437,8 @@ namespace GenerateClass.Generator.Helpers
                     // obj1.Adress
                     // check if the expression before is the name of the variable being assigned
                     // Ex: obj1 is of type Family
-                    var exprType = semanticModel.GetTypeInfo(ma.Expression).Type;
+                    //var exprType = semanticModel.GetTypeInfo(ma.Expression).Type;
+                    var exprType = GetExpressionTypeSafe(ma.Expression, semanticModel);
                     if (!SymbolEqualityComparer.Default.Equals(UnwrapCollection(exprType), namedType))
                         continue;
 
@@ -297,15 +447,17 @@ namespace GenerateClass.Generator.Helpers
                 else
                 {
                     // fallback — but must check type first
-                    var exprType = semanticModel.GetTypeInfo(assign.Left).Type;
+                    // var exprType = semanticModel.GetTypeInfo(assign.Left).Type;
+                    var exprType = GetExpressionTypeSafe(assign.Left, semanticModel);
                     if (!SymbolEqualityComparer.Default.Equals(UnwrapCollection(exprType), namedType))
                         continue;
 
                     propName = assign.Left.ToString().Split('.').Last();
                 }
 
-                ITypeSymbol? rightType = semanticModel.GetTypeInfo(assign.Right).Type;
-                rightType = NormalizeTypeAnonymousSafe(rightType, semanticModel);
+                // ITypeSymbol? rightType = semanticModel.GetTypeInfo(assign.Right).Type;
+                var rightType = GetExpressionTypeSafe(assign.Right, semanticModel);
+                rightType = NormalizeTypeAnonymousSafe(rightType, semanticModel, assign.Right);
                 rightType = NormalizeMultiDimensionalArrayType(rightType, semanticModel);
                 map[namedType][propName] = rightType;
                 GetNamespace(rightType, mapNamespaces, namedType);
@@ -313,22 +465,293 @@ namespace GenerateClass.Generator.Helpers
         }
 
         /// <summary>
-        /// Returns the original type if it is not an anonymous type; 
-        /// otherwise returns System.Object as a fallback.
-        /// This is useful when generating code because anonymous types 
-        /// cannot be directly represented in generated classes.
+        /// Find object initializers and assignments in the method body to get the properties assigned to this type.
         /// </summary>
-        private static ITypeSymbol? EnsureNonAnonymousType(ITypeSymbol? type, SemanticModel semanticModel)
+        /// <param name="type"></param>
+        /// <param name="methodSyntax"></param>
+        /// <param name="compilation"></param>
+        /// <param name="map"></param>
+        /// <param name="mapCtor"></param>
+        /// <param name="mapNamespaces"></param>
+        /// <param name="methodSymbol"></param>
+        public static void CollectTypeAndMembers(
+        ITypeSymbol type,
+        MethodDeclarationSyntax methodSyntax,
+        Compilation compilation,
+        Dictionary<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> map,
+        Dictionary<INamedTypeSymbol, List<(string CtorKey, List<(string Name, ITypeSymbol Type)> Params)>> mapCtor,
+        Dictionary<INamedTypeSymbol, HashSet<string>> mapNamespaces,
+        IMethodSymbol methodSymbol)
         {
-            if (type is null
-                || type.IsAnonymousType
-                || (type is INamedTypeSymbol named && named.IsAnonymousType))
+            if (type is null)
+                return;
+
+            // 1) Unwrap arrays/collections/tuples/generics and recursively collect inner types first
+            // This ensures we find ResponseClass1, Test2, MyNewClass, etc.
+            // Handle arrays
+            if (type is IArrayTypeSymbol arr)
             {
-                // Force fallback to object for anonymous or null types
-                return semanticModel.Compilation.GetSpecialType(SpecialType.System_Object);
+                CollectTypeAndMembers(arr.ElementType, methodSyntax, compilation, map, mapCtor, mapNamespaces, methodSymbol);
+                return;
             }
 
-            return type;
+            // If this is a tuple type, collect all element types
+            if (type is INamedTypeSymbol namedTuple && namedTuple.IsTupleType)
+            {
+                foreach (var el in namedTuple.TupleElements)
+                    CollectTypeAndMembers(el.Type, methodSyntax, compilation, map, mapCtor, mapNamespaces, methodSymbol);
+                return;
+            }
+
+            // If named generic, first recurse into type arguments (List<T>, Dictionary<K,V>, TestGenericClass<T> ...)
+            if (type is INamedTypeSymbol namedGeneric && namedGeneric.IsGenericType)
+            {
+                foreach (var targ in namedGeneric.TypeArguments)
+                    CollectTypeAndMembers(targ, methodSyntax, compilation, map, mapCtor, mapNamespaces, methodSymbol);
+                // Continue below to also consider the generic type itself (e.g. TestGenericClass<...>)
+            }
+
+            // Now try to get named type for the current symbol (unwrapping possible collection wrapper)
+            INamedTypeSymbol? namedType = UnwrapCollection(type) ?? type as INamedTypeSymbol;
+            if (namedType is null)
+                return;
+
+            // 2) Skip BCL/System types (we don't want to generate those)
+            //    Skip if namespace starts with "System" OR if it's a special core library type.
+            var ns = namedType.ContainingNamespace?.ToDisplayString() ?? string.Empty;
+            if (!string.IsNullOrEmpty(ns) &&
+            (ns == "System" || IgnoreType._skipPrefixes.Any(pre => ns.StartsWith(pre))))
+            {
+                return;
+            }
+            // Also skip compiler/runtime internal types like <global namespace> or mscorlib types just in case
+            var asmName = namedType.ContainingAssembly?.Name ?? string.Empty;
+            if (asmName.Equals("System.Private.CoreLib", StringComparison.OrdinalIgnoreCase)
+                || asmName.Equals("mscorlib", StringComparison.OrdinalIgnoreCase)
+                || asmName.Equals("netstandard", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            // 3) Ensure entry in map for this namedType (we keep the INamedTypeSymbol as key so we
+            //    can preserve generic information for generation)
+            if (!map.ContainsKey(namedType))
+                map[namedType] = new Dictionary<string, ITypeSymbol?>();
+
+            // Find object initializers in the method body that match this type:
+            SemanticModel semanticModel = compilation.GetSemanticModel(methodSyntax.SyntaxTree);
+
+            // 4) Inspect object creation initializers: new X { Prop = ... }
+            // new Teacher(){...}
+            IEnumerable<ObjectCreationExpressionSyntax> objectCreations = methodSyntax.DescendantNodes()
+                                                                      .OfType<ObjectCreationExpressionSyntax>();
+            foreach (ObjectCreationExpressionSyntax creation in objectCreations)
+            {
+                INamedTypeSymbol? createdType = semanticModel.GetTypeInfo(creation).Type as INamedTypeSymbol;
+                INamedTypeSymbol? unwrapped = UnwrapCollection(createdType) ?? createdType;
+
+                if (SymbolEqualityComparer.Default.Equals(unwrapped, namedType))
+                {
+                    // Get the assignments in the initializer:
+                    // initializer form: new T { Prop = value, ... }
+                    if (creation.Initializer is not null)
+                    {
+                        foreach (ExpressionSyntax expr in creation.Initializer.Expressions)
+                        {
+                            if (expr is AssignmentExpressionSyntax assign)
+                            {
+                                // use semantic model to get property name correctly
+                                var leftSym = semanticModel.GetSymbolInfo(assign.Left).Symbol as IPropertySymbol;
+                                string propName;
+                                if (leftSym is not null)
+                                {
+                                    propName = leftSym.Name;
+                                }
+                                else if (assign.Left is MemberAccessExpressionSyntax ma)
+                                {
+                                    // e.g. obj.Prop  or this.Prop
+                                    propName = ma.Name.Identifier.Text;
+                                }
+                                else if (assign.Left is IdentifierNameSyntax idn)
+                                {
+                                    // e.g. Prop (maybe inside same class)
+                                    propName = idn.Identifier.Text;
+                                }
+                                else
+                                {
+                                    // last-resort fallback
+                                    propName = assign.Left.ToString().Split('.').Last();
+                                }
+
+                                /*
+                                 * Resolve right-hand expression type safely (handles tuples, anonymous, null)
+                                */
+                                //ITypeSymbol? rightType = semanticModel.GetTypeInfo(assign.Right).Type;
+                                var rightType = GetExpressionTypeSafe(assign.Right, semanticModel);
+                                rightType = NormalizeTypeAnonymousSafe(rightType, semanticModel, assign.Right);
+                                rightType = NormalizeMultiDimensionalArrayType(rightType, semanticModel);
+                                map[namedType][propName] = rightType;
+                                GetNamespace(rightType, mapNamespaces, namedType);
+                            }
+                        }
+                    }
+
+                    // constructor named-arg style: new T( propName: value, ...)
+                    // var obj = new MyObject(Prop1: val1, Prop2: val2,...)
+                    if (creation.ArgumentList is not null)
+                    {
+                        var ctorParams = new List<(string Name, ITypeSymbol Type)>();
+
+                        foreach (var arg in creation.ArgumentList.Arguments)
+                        {
+                            if (arg.NameColon is not null)
+                            {
+                                string propName = arg.NameColon.Name.Identifier.Text;
+                                // ITypeSymbol? argType = semanticModel.GetTypeInfo(arg.Expression).Type;
+                                var argType = GetExpressionTypeSafe(arg.Expression, semanticModel);
+                                argType = NormalizeTypeAnonymousSafe(argType, semanticModel, arg.Expression);
+                                argType = NormalizeMultiDimensionalArrayType(argType, semanticModel);
+                                map[namedType][propName] = argType;
+
+                                ctorParams.Add((propName, argType!));
+                                GetNamespace(argType, mapNamespaces, namedType);
+                            }
+                        }
+
+                        if (ctorParams.Count > 0)
+                        {
+                            string ctorKey = string.Join(",", ctorParams.Select(pram => pram.Name).OrderBy(x => x));
+                            if (!mapCtor.ContainsKey(namedType))
+                            {
+                                mapCtor[namedType] =
+                                [
+                                    (CtorKey: ctorKey, Params: ctorParams)
+                                ];
+                            }
+                            else
+                            {
+                                if (!mapCtor[namedType].Any(ctor => ctor.CtorKey.Equals(ctorKey)))
+                                {
+                                    //mapCtor[namedType].Add((CtorKey: ctorKey, Params: ctorParams));
+                                    mapCtor[namedType] = mapCtor[namedType].Append((CtorKey: ctorKey, Params: ctorParams)).ToList();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5) Also inspect assignment expressions in method body: obj.Prop = ...
+            IEnumerable<AssignmentExpressionSyntax> assignments = methodSyntax.DescendantNodes()
+                                                                    .OfType<AssignmentExpressionSyntax>();
+            foreach (AssignmentExpressionSyntax assign in assignments)
+            {
+                ISymbol? leftSymbol = semanticModel.GetSymbolInfo(assign.Left).Symbol;
+                string propName;
+
+                // prioritize semantic symbol name when possible, otherwise parse syntax
+                if (leftSymbol is not null)
+                {
+                    // only add if containingType matches or not resolved then still get name
+                    if (leftSymbol.ContainingType is not null &&
+                        SymbolEqualityComparer.Default.Equals(UnwrapCollection(leftSymbol.ContainingType), namedType))
+                    {
+                        propName = leftSymbol.Name;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+                else if (assign.Left is MemberAccessExpressionSyntax ma)
+                {
+                    // obj1.Adress
+                    // check if the expression before is the name of the variable being assigned
+                    // Ex: obj1 is of type Family
+                    //var exprType = semanticModel.GetTypeInfo(ma.Expression).Type;
+                    var exprType = GetExpressionTypeSafe(ma.Expression, semanticModel);
+                    if (!SymbolEqualityComparer.Default.Equals(UnwrapCollection(exprType), namedType))
+                        continue;
+
+                    propName = ma.Name.Identifier.Text;
+                }
+                else
+                {
+                    // fallback — but must check type first
+                    // var exprType = semanticModel.GetTypeInfo(assign.Left).Type;
+                    var exprType = GetExpressionTypeSafe(assign.Left, semanticModel);
+                    if (!SymbolEqualityComparer.Default.Equals(UnwrapCollection(exprType), namedType))
+                        continue;
+
+                    propName = assign.Left.ToString().Split('.').Last();
+                }
+
+                // ITypeSymbol? rightType = semanticModel.GetTypeInfo(assign.Right).Type;
+                var rightType = GetExpressionTypeSafe(assign.Right, semanticModel);
+                rightType = NormalizeTypeAnonymousSafe(rightType, semanticModel, assign.Right);
+                rightType = NormalizeMultiDimensionalArrayType(rightType, semanticModel);
+                map[namedType][propName] = rightType;
+                GetNamespace(rightType, mapNamespaces, namedType);
+            }
+        }
+
+        /// <summary>
+        /// Normalizes a tuple type recursively, handling unresolved tuple literals,
+        /// resolved tuple types, and delegating to anonymous type normalization when necessary.
+        /// </summary>
+        /// <param name="type">The type symbol to normalize, which may represent a tuple or an error type.</param>
+        /// <param name="semanticModel">The semantic model used for type resolution.</param>
+        /// <param name="expr">The expression syntax associated with the type, used for deeper analysis.</param>
+        /// <returns>
+        /// A normalized <see cref="ITypeSymbol"/>
+        /// </returns>
+        private static ITypeSymbol NormalizeTupleRecursive(
+            ITypeSymbol? type,
+            SemanticModel semanticModel,
+            ExpressionSyntax? expr)
+        {
+            // case: unresolved tuple literal
+            // *** handle tuple expression with error type ***
+            // (1, null, "abc")
+            if (type is IErrorTypeSymbol && expr is TupleExpressionSyntax tupleExpr)
+            {
+                var elemTypes = tupleExpr.Arguments
+                    .Select(arg =>
+                    {
+                        var elemT = GetExpressionTypeSafe(arg.Expression, semanticModel);
+                        return NormalizeTupleRecursive(elemT, semanticModel, arg.Expression);
+                    })
+                    .ToImmutableArray();
+
+                var names = tupleExpr.Arguments
+                    .Select(arg => arg.NameColon?.Name.Identifier.ValueText ?? "")
+                    .ToImmutableArray();
+
+#pragma warning disable CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
+                return semanticModel.Compilation.CreateTupleTypeSymbol(elemTypes, names);
+#pragma warning restore CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
+            }
+
+            // case: resolved tuple type
+            // **Handle tuple**: even if Roslyn can't infer nicely, we rebuild element types:
+            if (type is INamedTypeSymbol namedTuple && namedTuple.IsTupleType)
+            {
+                var elemTypes = namedTuple.TupleElements
+                    .Select(e =>
+                    {
+                        var et = e.Type;
+                        return NormalizeTupleRecursive(et, semanticModel, expr);
+                    })
+                    .ToImmutableArray();
+
+                var names = namedTuple.TupleElements.Select(e => e.Name ?? "").ToImmutableArray();
+#pragma warning disable CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
+                return semanticModel.Compilation.CreateTupleTypeSymbol(elemTypes, names);
+#pragma warning restore CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
+            }
+
+            // default: delegate to NormalizeTypeAnonymousSafe (object/anonymous…)
+            return NormalizeTypeAnonymousSafe(type, semanticModel, expr);
         }
 
         /// <summary>
@@ -337,8 +760,15 @@ namespace GenerateClass.Generator.Helpers
         ///   force the entire type to System.Object (not List<object>).
         /// - Otherwise, rebuild the type recursively (arrays, generics) but with normalized arguments.
         /// This prevents invalid generic signatures like List<<anonymous type>>.
+        /// + anonymous -> object
+        /// + tuple: keep tuple shape, normalize each element (anonymous/null -> object)
+        /// + arrays: normalize element
+        /// + generic: if any type arg is anonymous -> fallback to object (policy); otherwise reconstruct
         /// </summary>
-        private static ITypeSymbol NormalizeTypeAnonymousSafe(ITypeSymbol? type, SemanticModel semanticModel)
+        private static ITypeSymbol NormalizeTypeAnonymousSafe(
+        ITypeSymbol? type,
+        SemanticModel semanticModel,
+        ExpressionSyntax? originalExpression = null)
         {
             // If null type → treat as object
             if (type is null)
@@ -349,6 +779,19 @@ namespace GenerateClass.Generator.Helpers
                 (type is INamedTypeSymbol namedAnon && namedAnon.IsAnonymousType))
             {
                 return semanticModel.Compilation.GetSpecialType(SpecialType.System_Object);
+            }
+
+            // *** handle tuple expression with error type ***
+            // (1, null, "abc")
+            if (type is IErrorTypeSymbol && originalExpression is TupleExpressionSyntax tupleExpr)
+            {
+                return NormalizeTupleRecursive(type, semanticModel, originalExpression);
+            }
+
+            // **Handle tuple**: even if Roslyn can't infer nicely, we rebuild element types:
+            if (type is INamedTypeSymbol namedTuple && namedTuple.IsTupleType)
+            {
+                return NormalizeTupleRecursive(type, semanticModel, originalExpression);
             }
 
             // If it's a generic type (List<T>, Dictionary<K,V>, etc.)
@@ -366,6 +809,7 @@ namespace GenerateClass.Generator.Helpers
                 var newArgs = named.TypeArguments
                     .Select(t => NormalizeTypeAnonymousSafe(t, semanticModel))
                     .ToArray();
+
                 return named.ConstructedFrom.Construct(newArgs);
             }
 
@@ -404,37 +848,15 @@ namespace GenerateClass.Generator.Helpers
                 // Manually construct the array type string
                 // Example: decimal[,]
                 var rankCommas = new string(',', arrSym.Rank - 1);
-                var arrayName = $"{FriendlyTypeName(elementType)}[{rankCommas}]";
+                var arrayName = $"{GetFriendlyTypeName(elementType)}[{rankCommas}]";
 
                 // You could store the type as ITypeSymbol, but for multi-dimensional arrays,
-                // FriendlyTypeName(elementType) + "[,]" or simply cast to object if deeper handling isn't needed
+                // GetFriendlyTypeName(elementType) + "[,]" or simply cast to object if deeper handling isn't needed
                 // Simplest approach:
                 return semanticModel.Compilation.GetSpecialType(SpecialType.System_Object);
             }
             return type;
         }
-
-        //private static void GetNamespace(
-        //ITypeSymbol? type,
-        //Dictionary<INamedTypeSymbol, HashSet<string>> mapNamespaces,
-        //INamedTypeSymbol namedType)
-        //{
-        //    if (!mapNamespaces.ContainsKey(namedType))
-        //        mapNamespaces[namedType] = new HashSet<string>();
-
-        //    if (type is not null)
-        //    {
-        //        var ns = type.ContainingNamespace?.ToDisplayString();
-        //        if (!string.IsNullOrEmpty(ns)
-        //            && ns != "System"
-        //            && ns != "System.Collections.Generic")
-        //        {
-        //            // gom namespace lại để cuối cùng thêm using
-        //            if (!mapNamespaces[namedType].Contains(ns!))
-        //                mapNamespaces[namedType].Add(ns!);
-        //        }
-        //    }
-        //}
 
         /// <summary>
         /// get namespace
@@ -456,7 +878,7 @@ namespace GenerateClass.Generator.Helpers
             if (!mapNamespaces.ContainsKey(namedType))
                 mapNamespaces[namedType] = new HashSet<string>();
 
-            if (type is null) 
+            if (type is null)
                 return;
 
             // handle arrays: recurse into element
@@ -508,7 +930,7 @@ namespace GenerateClass.Generator.Helpers
         /// <returns></returns>
         public static string GetTypeDisplayString(ITypeSymbol? type, HashSet<string>? usingsForThisType = null)
         {
-            if (type is null) 
+            if (type is null)
                 return "object";
 
             // arrays (including multi-dim)
@@ -516,13 +938,13 @@ namespace GenerateClass.Generator.Helpers
             {
                 var elem = GetTypeDisplayString(arr.ElementType, usingsForThisType);
 
-                if (arr.Rank == 1) 
+                if (arr.Rank == 1)
                     return $"{elem}[]";
 
                 return $"{elem}[{new string(',', arr.Rank - 1)}]";
             }
 
-            // nullable value types handled in FriendlyTypeName if needed, but fall back here:
+            // nullable value types handled in GetFriendlyTypeName if needed, but fall back here:
             if (type is INamedTypeSymbol named)
             {
                 // If the type itself is nested (ContainingType != null) => use fully-qualified name
@@ -530,6 +952,22 @@ namespace GenerateClass.Generator.Helpers
                 {
                     // Fully qualified avoids needing a using for nested types. Strip "global::"
                     return named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
+                }
+
+                // tuple type: (int, string, bool)
+                if (named.IsTupleType)
+                {
+                    // NEW: normalize each tuple element: if anonymous or null -> object
+                    // (1, null, "abc") --> (int, object, string)
+                    var elements = named.TupleElements
+                        .Select(e =>
+                        {
+                            var et = e.Type;
+                            if (et is null || et.IsAnonymousType || (et is INamedTypeSymbol en && en.IsAnonymousType))
+                                return "object";
+                            return GetTypeDisplayString(et, usingsForThisType);
+                        });
+                    return $"({string.Join(", ", elements)})";
                 }
 
                 // nullable convertion: Nullable<T> -> T?
@@ -556,8 +994,8 @@ namespace GenerateClass.Generator.Helpers
                 return named.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat).Replace("global::", "");
             }
 
-            // fallback: use FriendlyTypeName for primitives and others
-            return FriendlyTypeName(type);
+            // fallback: use GetFriendlyTypeName for primitives and others
+            return GetFriendlyTypeName(type);
         }
 
         /// <summary>
@@ -570,12 +1008,6 @@ namespace GenerateClass.Generator.Helpers
         MethodDeclarationSyntax methodSyntax,
         SemanticModel semanticModel)
         {
-            //return methodSyntax.DescendantNodes()
-            //    .OfType<ObjectCreationExpressionSyntax>()
-            //    .Select(oc => semanticModel.GetTypeInfo(oc).Type)
-            //    .Where(t => t is not null && t.SpecialType == SpecialType.None)!;
-
-
             // explicit new T()
             foreach (var oc in methodSyntax.DescendantNodes().OfType<ObjectCreationExpressionSyntax>())
             {
@@ -610,11 +1042,6 @@ namespace GenerateClass.Generator.Helpers
         /// <returns></returns>
         public static IEnumerable<ITypeSymbol> CollectDeclaredTypes(MethodDeclarationSyntax methodSyntax, SemanticModel semanticModel)
         {
-            //return methodSyntax.DescendantNodes()
-            //    .OfType<VariableDeclarationSyntax>()
-            //    .Select(v => semanticModel.GetTypeInfo(v.Type).Type)
-            //    .Where(t => t is not null && t.SpecialType == SpecialType.None)!;
-
             foreach (var vd in methodSyntax.DescendantNodes().OfType<VariableDeclarationSyntax>())
             {
                 // If explicit type (List<MyType>), get type from vd.Type
@@ -765,6 +1192,7 @@ namespace GenerateClass.Generator.Helpers
             return type as INamedTypeSymbol;
         }
 
+        [Obsolete("This method is currently unused but kept for future use.", false)]
         public static IEnumerable<INamedTypeSymbol> CollectAllNamedTypes(ITypeSymbol? type)
         {
             if (type is null)
@@ -900,10 +1328,21 @@ namespace GenerateClass.Generator.Helpers
                 if (ret.Expression is null)
                     continue;
 
-                Microsoft.CodeAnalysis.TypeInfo typeInfo = semanticModel.GetTypeInfo(ret.Expression);
-                ITypeSymbol? t = typeInfo.Type;
-                if (t is not null && t.SpecialType != SpecialType.System_Void)
-                    result.Add(t);
+                //Microsoft.CodeAnalysis.TypeInfo typeInfo = semanticModel.GetTypeInfo(ret.Expression);
+                //ITypeSymbol? t = typeInfo.Type;
+                //if (t is not null && t.SpecialType != SpecialType.System_Void)
+                //    result.Add(t);
+
+                // Lấy type của expression
+                //Microsoft.CodeAnalysis.TypeInfo typeInfo = semanticModel.GetTypeInfo(ret.Expression);
+                //ITypeSymbol? rawType = typeInfo.Type;
+                var rawType = GetExpressionTypeSafe(ret.Expression, semanticModel);
+
+                var normType = NormalizeTypeAnonymousSafe(rawType, semanticModel, ret.Expression);
+                if (normType is not null && normType.SpecialType != SpecialType.System_Void)
+                {
+                    result.Add(normType);
+                }
             }
 
             return result;
@@ -934,6 +1373,8 @@ namespace GenerateClass.Generator.Helpers
 
         /// <summary>
         /// Generates C# class source code based on the provided type name, properties, and configuration.
+        /// Supports generic type parameters, extra usings, and constructors.
+        /// Skips generation for System.* types.
         /// </summary>
         /// <param name="typeName">The name of the class to generate.</param>
         /// <param name="properties">A collection of properties with their names and types.</param>
@@ -943,7 +1384,7 @@ namespace GenerateClass.Generator.Helpers
         INamedTypeSymbol namedTypeSymbol,
         IEnumerable<(string PropName, string PropType)> properties,
         GenerateClassOption config,
-        Dictionary<INamedTypeSymbol, List<(string Name, ITypeSymbol Type)>> mapCtor,
+        Dictionary<INamedTypeSymbol, List<(string, List<(string Name, ITypeSymbol Type)> Params)>> mapCtor,
         Dictionary<INamedTypeSymbol, HashSet<string>> mapNamespaces,
         SourceProductionContext spc)
         {
@@ -957,32 +1398,19 @@ namespace GenerateClass.Generator.Helpers
             string namespaceOfFile = string.IsNullOrWhiteSpace(config!.Namespace) ? "Generated" : config.Namespace!;
 
             // Merge properties from dev config and discovered properties
-            List<(string PropName, string PropType)> allProps = new List<(string PropName, string PropType)>();
-            if (config.RequiredProperties is not null)
-            {
-                foreach (KeyValuePair<string, string> kv in config.RequiredProperties)
-                {
-                    // Avoid duplicate property names
-                    if (!properties.Any(p => p.PropName == kv.Key))
-                        allProps.Add((kv.Key, kv.Value));
-                }
-            }
-            allProps.AddRange(properties);
+            var requiredProperties = config.RequiredProperties ?? new Dictionary<string, string>();
+            List<(int proIndex, string PropName, string PropType)> allProps
+            = requiredProperties
+                .Select(kv => (Index: int.MinValue, PropName: kv.Key, PropType: kv.Value))
+                .Concat(
+                    properties.Where(p => !requiredProperties.ContainsKey(p.PropName))
+                              .Select(p => (Index: int.MaxValue, p.PropName, p.PropType))
+                )
+                .OrderBy(p => p.Index)
+                .ToList();
 
-            //StringBuilder sb1 = new StringBuilder();
-            //var dt = DateTime.Now.ToString("dd-MM-yyyy_HH-mm-ss-ffffff");
-            //sb1.AppendLine($"[New][{dt}]");
-            //sb1.AppendLine("\t1. allProps (" + typeName + "):\n");
-            //sb1.AppendLine(string.Join("\n\t", allProps.Select(x => x.Item1 + ":" + x.Item2)));
-            //sb1.AppendLine();
-            //spc.AddSource($"Log_{typeName}_{dt}.txt", sb1.ToString());
-
-            List<string> namespaces = new List<string>() { "System" };
-
-            if (NeedsCollectionsUsing(allProps))
-            {
-                namespaces.Add("System.Collections.Generic");
-            }
+            // 1. Generate "using namespace"
+            List<string> namespaces = new List<string>() { };
 
             if (mapNamespaces.TryGetValue(namedTypeSymbol, out var nsList))
             {
@@ -999,13 +1427,39 @@ namespace GenerateClass.Generator.Helpers
             {
                 sb.AppendLine($"using {ns};");
             }
-
-            sb.AppendLine();
+            if (namespaces.Count > 0)
+                sb.AppendLine();
             sb.AppendLine($"namespace {namespaceOfFile}");
             sb.AppendLine("{");
-            sb.AppendLine($"\tpublic class {namedTypeSymbol.Name}");
+
+            // 2. Generate class
+            // public class MyClass
+            // public class MyClass<T>
+            // public class MyClass<T1, T2>
+            var def = namedTypeSymbol.OriginalDefinition;
+            var typeName = def.Name;
+            var paramNames = def.TypeParameters.Select(tp => tp.Name).ToList();
+            if (paramNames.Count == 0 && namedTypeSymbol.TypeArguments.Length > 0)
+            {
+                paramNames = Enumerable.Range(1, namedTypeSymbol.TypeArguments.Length)
+                                       .Select(i => $"T{i}")
+                                       .ToList();
+            }
+            if (paramNames.Count > 0)
+            {
+                paramNames = Enumerable.Range(1, paramNames.Count)
+                                       .Select(i => string.IsNullOrWhiteSpace(paramNames[i - 1])
+                                                    ? $"T{i}"
+                                                    : paramNames[i - 1])
+                                       .ToList();
+                typeName += $"<{string.Join(", ", paramNames)}>";
+            }
+
+            sb.AppendLine($"\tpublic class {typeName}");
             sb.AppendLine("\t{");
-            foreach ((string PropName, string PropType) prop in allProps)
+
+            // 3. Generate properties
+            foreach ((int proIndex, string PropName, string PropType) prop in allProps)
             {
                 sb.AppendLine($"\t\t/// <summary>");
                 sb.AppendLine($"\t\t/// {prop.PropName}");
@@ -1013,21 +1467,35 @@ namespace GenerateClass.Generator.Helpers
                 sb.AppendLine($"\t\tpublic {prop.PropType} {prop.PropName} {{ get; set; }}\n");
             }
 
-            if (mapCtor.TryGetValue(namedTypeSymbol, out var ctorParams))
+            // 4. Generate constructors
+            if (mapCtor.TryGetValue(namedTypeSymbol, out var allCtor))
             {
-                // generate ctor signature:
-                var ctorSignature = string.Join(", ", ctorParams.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"));
-                sb.AppendLine($"\t\tpublic {namedTypeSymbol.Name}({ctorSignature})");
-                sb.AppendLine("\t\t{");
-                foreach (var p in ctorParams)
+                var dictionaryProp = allProps.ToDictionary(p => p.PropName, p => p.PropType);
+                int numberOfCtor = allCtor.Count;
+                for (int idx = 0; idx < numberOfCtor; idx++)
                 {
-                    sb.AppendLine($"\t\t\tthis.{p.Name} = {p.Name};");
+                    var ctor = allCtor[idx];
+
+                    // generate ctor signature:
+                    var ctorSignature = string.Join(", ", ctor.Params.Select(p => $"{dictionaryProp[p.Name]} {p.Name}"));
+                    sb.AppendLine($"\t\tpublic {namedTypeSymbol.Name}({ctorSignature})");
+                    sb.AppendLine("\t\t{");
+                    foreach (var p in ctor.Params)
+                    {
+                        sb.AppendLine($"\t\t\tthis.{p.Name} = {p.Name};");
+                    }
+                    sb.AppendLine("\t\t}");
+
+                    if (idx < numberOfCtor - 1)
+                    {
+                        sb.AppendLine();
+                    }
                 }
-                sb.AppendLine("\t\t}");
             }
 
             sb.AppendLine("\t}");
             sb.AppendLine("}");
+
             return sb.ToString();
         }
 
@@ -1036,8 +1504,8 @@ namespace GenerateClass.Generator.Helpers
         /// (Check if any property type indicates a collection type that needs System.Collections.Generic
         /// </summary>
         /// <param name="props"></param>
-        /// <returns></returns>
-        public static bool NeedsCollectionsUsing(IEnumerable<(string PropName, string PropType)> props)
+        [Obsolete("This method is currently unused but kept for future use.", false)]
+        public static bool NeedsCollectionsUsing(IEnumerable<(int proIndex, string PropName, string PropType)> props)
         {
             string[] prefixes =
             {
@@ -1048,6 +1516,20 @@ namespace GenerateClass.Generator.Helpers
 
             return props.Any(p => prefixes.Any(pref =>
                 p.PropType.StartsWith(pref, StringComparison.Ordinal)));
+        }
+
+        [Obsolete("This method is currently unused but kept for future use.", false)]
+        public static void WriteLog(SourceProductionContext spc, object content, string? id = null)
+        {
+            StringBuilder sb = new StringBuilder();
+            var dt = DateTime.Now.ToString("dd-MM-yyyy_HH-mm-ss-ffffff");
+            sb.AppendLine($"[New][{dt}]");
+            sb.AppendLine(content.ToString());
+            sb.AppendLine();
+            if (string.IsNullOrEmpty(id))
+                spc.AddSource($"Logs_{dt}_{Guid.NewGuid()}.log", sb.ToString());
+            else
+                spc.AddSource($"Logs_{id}_{dt}_{Guid.NewGuid()}.log", sb.ToString());
         }
     }
 }

@@ -1,9 +1,17 @@
-﻿using System;
-
-namespace MyApp.GeneratedDtos
+﻿namespace MyApp.GeneratedDtos
 {
 	public class Teacher
 	{
+		/// <summary>
+		/// Id
+		/// </summary>
+		public long Id { get; set; }
+
+		/// <summary>
+		/// Name
+		/// </summary>
+		public string Name { get; set; }
+
 		/// <summary>
 		/// Phone
 		/// </summary>
@@ -23,16 +31,6 @@ namespace MyApp.GeneratedDtos
 		/// Dt
 		/// </summary>
 		public DateTime Dt { get; set; }
-
-		/// <summary>
-		/// Id
-		/// </summary>
-		public long Id { get; set; }
-
-		/// <summary>
-		/// Name
-		/// </summary>
-		public string Name { get; set; }
 
 	}
 }

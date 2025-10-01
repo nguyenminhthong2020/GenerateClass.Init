@@ -5,9 +5,6 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.DependencyInjection;
-using System.Diagnostics;
-using System.Text;
-
 
 namespace GenerateClass.Generator
 {
@@ -119,7 +116,7 @@ namespace GenerateClass.Generator
                                                             if (valExpr is TypeOfExpressionSyntax tos)
                                                             {
                                                                 var tSym = ctx.SemanticModel.GetTypeInfo(tos.Type).Type;
-                                                                if (tSym is not null) val = Utils.FriendlyTypeName(tSym);
+                                                                if (tSym is not null) val = Utils.GetFriendlyTypeName(tSym);
                                                             }
                                                             else
                                                             {
@@ -180,7 +177,7 @@ namespace GenerateClass.Generator
                                                             if (valueSide is TypeOfExpressionSyntax tos2)
                                                             {
                                                                 var tSym2 = ctx.SemanticModel.GetTypeInfo(tos2.Type).Type;
-                                                                if (tSym2 is not null) val = Utils.FriendlyTypeName(tSym2);
+                                                                if (tSym2 is not null) val = Utils.GetFriendlyTypeName(tSym2);
                                                             }
                                                             else
                                                             {
@@ -209,11 +206,11 @@ namespace GenerateClass.Generator
             // 3) Combine method targets + config + compilation and generate
             var combined = context.CompilationProvider.Combine(methodsWithAttr.Collect()).Combine(addGenConfig);
 
+            //if (!System.Diagnostics.Debugger.IsAttached)
+            //    System.Diagnostics.Debugger.Launch();
+
             context.RegisterSourceOutput(combined, (spc, source) =>
             {
-                //// 🟢 Đặt Debugger.Launch() ngay đầu delegate này
-                //Debugger.Launch(); // Khi build solution, VS sẽ hỏi bạn attach debugger
-
                 // Test 
                 spc.ReportDiagnostic(Diagnostic.Create(
                 new DiagnosticDescriptor(
@@ -230,29 +227,40 @@ namespace GenerateClass.Generator
 #pragma warning restore CS8619 // Nullability of reference types in value doesn't match target type.
                 GenerateClassOption config = configs.FirstOrDefault() ?? new GenerateClassOption();
 
-                if (!(config.Enabled ?? true)) 
+                if (!(config.Enabled ?? true))
                     return;
+
+                // aggregated map across all methods: TypeSymbol -> (PropName -> ITypeSymbol?)
+                Dictionary<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> aggregated
+                                              = new(SymbolEqualityComparer.Default);
+                HashSet<string> usedHintNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                Dictionary<(string nspace, string namedTypeSymbol),
+                          (INamedTypeSymbol typeSymbol,
+                          List<(string PropName, string PropType)> propList,
+                          Dictionary<INamedTypeSymbol, List<(string CtorKey, List<(string Name, ITypeSymbol Type)> Params)>> mapCtor,
+                          Dictionary<INamedTypeSymbol, HashSet<string>> mapNamespaces)>
+                   mapClassesToGenerate = new();
 
                 // For each method with attribute:
                 foreach (var item in methods)
                 {
-                    if (item is null) 
+                    if (item is null)
                         continue;
 
-                    if (item.Mode == Mode.None) 
+                    if (item.Mode == Mode.None)
                         continue;
 
-                    //Dictionary<INamedTypeSymbol, HashSet<string>> typesToGenerate = new Dictionary<INamedTypeSymbol, HashSet<string>>(SymbolEqualityComparer.Default);
-                    
                     // key = typeSymbol (Teacher), value = map propName -> ITypeSymbol? (kiểu lấy từ RHS nếu có)
-                    Dictionary<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> typesToGenerate = new(SymbolEqualityComparer.Default);
+                    Dictionary<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> typesToGenerate
+                             = new(SymbolEqualityComparer.Default);
 
                     // var obj = new MyObject(Prop1: val1, Prop2: val2,...)
                     // Ctor: constructor symbol → collect param names and types
-                    Dictionary<INamedTypeSymbol, List<(string Name, ITypeSymbol Type)>> mapCtor = new(SymbolEqualityComparer.Default);
+                    Dictionary<INamedTypeSymbol, List<(string CtorKey, List<(string Name, ITypeSymbol Type)> Params)>> mapCtor
+                             = new(SymbolEqualityComparer.Default);
 
                     // Namespace imports to add to generated files
-                    Dictionary<INamedTypeSymbol, HashSet<string>> mapNamespaces = new Dictionary<INamedTypeSymbol, HashSet<string>>();
+                    Dictionary<INamedTypeSymbol, HashSet<string>> mapNamespaces = new();
 
                     // Collect based on Mode:
                     if (item.Mode == Mode.Parameter || item.Mode == Mode.All)
@@ -267,7 +275,9 @@ namespace GenerateClass.Generator
                         // look at return statements in method syntax and find expression types / return expression type
                         IEnumerable<ITypeSymbol> returnTypes = Utils.FindReturnedTypes(item.MethodSyntax, compilation);
                         foreach (ITypeSymbol t in returnTypes)
+                        {
                             Utils.CollectTypeAndMembers(t, item.MethodSyntax, compilation, typesToGenerate, mapCtor, mapNamespaces, item.MethodSymbol);
+                        }
                     }
 
                     if (item.Mode == Mode.All)
@@ -279,11 +289,8 @@ namespace GenerateClass.Generator
                         foreach (var createdType in createdTypes)
                         {
                             var named = Utils.UnwrapCollection(createdType) ?? createdType as INamedTypeSymbol;
-                            if (named is null) 
+                            if (named is null)
                                 continue;
-
-                            //if (!typesToGenerate.ContainsKey(named))
-                            //    typesToGenerate[named] = new HashSet<string>();
 
                             if (named is not null && !typesToGenerate.ContainsKey(named))
                                 typesToGenerate[named] = new Dictionary<string, ITypeSymbol?>(StringComparer.Ordinal);
@@ -292,15 +299,12 @@ namespace GenerateClass.Generator
                             Utils.CollectTypeAndMembers(createdType, item.MethodSyntax, compilation, typesToGenerate, mapCtor, mapNamespaces, item.MethodSymbol);
                         }
 
-                        IEnumerable<ITypeSymbol> declaredTypes = Utils.CollectCreatedTypes(item.MethodSyntax, semanticModel);
+                        IEnumerable<ITypeSymbol> declaredTypes = Utils.CollectDeclaredTypes(item.MethodSyntax, semanticModel);
                         foreach (var declaredType in declaredTypes)
                         {
                             var named = Utils.UnwrapCollection(declaredType) ?? declaredType as INamedTypeSymbol;
-                            if (named is null) 
+                            if (named is null)
                                 continue;
-
-                            //if (!typesToGenerate.ContainsKey(named))
-                            //    typesToGenerate[named] = new HashSet<string>();
 
                             if (named is not null && !typesToGenerate.ContainsKey(named))
                                 typesToGenerate[named] = new Dictionary<string, ITypeSymbol?>(StringComparer.Ordinal);
@@ -313,7 +317,7 @@ namespace GenerateClass.Generator
                         foreach (var declaredTypeWithGenerics in declaredTypesWithGenerics)
                         {
                             var named = Utils.UnwrapCollection(declaredTypeWithGenerics) ?? declaredTypeWithGenerics as INamedTypeSymbol;
-                            if (named is null) 
+                            if (named is null)
                                 continue;
 
                             if (!typesToGenerate.ContainsKey(named))
@@ -321,27 +325,45 @@ namespace GenerateClass.Generator
 
                             Utils.CollectTypeAndMembers(declaredTypeWithGenerics, item.MethodSyntax, compilation, typesToGenerate, mapCtor, mapNamespaces, item.MethodSymbol);
                         }
-
                     }
 
+
+                    // remove types that should be ignored (Ex: System..., Microsoft...)
                     typesToGenerate = typesToGenerate.Where(kv => !IgnoreType._skipPrefixes.Any(prefix => kv.Key.ToString().StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                                                      .ToDictionary(kv => kv.Key, kv => kv.Value);
 
-                    //StringBuilder sb = new StringBuilder();
-                    //var dt = DateTime.Now.ToString("dd-MM-yyyy_HH-mm-ss-ffffff");
-                    //sb.AppendLine($"[New][{dt}]");
-                    //sb.AppendLine("\t1. Config: " + "\n");
-                    //sb.AppendLine("Path: " + config.Path);
-                    //sb.AppendLine("Namespace: " + config.Namespace);
-                    //sb.AppendLine(string.Join("\n\t", config.RequiredProperties.Select(x => x.Key + ":" + x.Value)));
-                    //sb.AppendLine("\t2. All Types: \n");
-                    //sb.AppendLine(string.Join("\n\t", typesToGenerate.Select(x => x.Key + ":" + x.Value)));
-                    //sb.AppendLine();
-                    //spc.AddSource($"Logs_{dt}.txt", sb.ToString());
+                    // merge typesToGenerate into aggregated
+                    foreach (var kv in typesToGenerate)
+                    {
+                        var tSym = kv.Key;
+                        if (!aggregated.TryGetValue(tSym, out var propMap))
+                        {
+                            propMap = new Dictionary<string, ITypeSymbol?>(StringComparer.Ordinal);
+                            aggregated[tSym] = propMap;
+                        }
+
+                        // merge properties: prefer existing non-null type; otherwise take new
+                        foreach (var p in kv.Value)
+                        {
+                            if (!propMap.TryGetValue(p.Key, out var existing))
+                            {
+                                propMap[p.Key] = p.Value;
+                            }
+                            else if (existing is null && p.Value is not null)
+                            {
+                                // upgrade null -> concrete type when available
+                                propMap[p.Key] = p.Value;
+                            }
+                        }
+
+                        if (mapNamespaces.TryGetValue(tSym, out var nsForThis))
+                            foreach (var ns in nsForThis)
+                                mapNamespaces[tSym].Add(ns);
+                    }
 
                     // Add required properties from config to each type
                     Dictionary<string, string> rpConfig = config.RequiredProperties ?? new Dictionary<string, string>();
-                    foreach (KeyValuePair<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> kv in typesToGenerate)
+                    foreach (KeyValuePair<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> kv in aggregated)
                     {
                         foreach (KeyValuePair<string, string> rp in rpConfig)
                         {
@@ -349,29 +371,34 @@ namespace GenerateClass.Generator
                             {
                                 // not yet → add with type from config (not resolved ITypeSymbol yet)
                                 // type of prop determined later (try to map rp.Value)
-                                kv.Value[rp.Key] = null; 
+                                kv.Value[rp.Key] = null;
                             }
                         }
                     }
 
-                    // Generate source files for missing types (only if type symbol not found in compilation)
-                    foreach (KeyValuePair<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> kv in typesToGenerate)
+                    // Check log
+                    //string contentLog1 = string.Join();
+                    //Utils.WriteLog(spc, contentLog1);
+
+                    // Generate source files once per aggregated type for missing types
+                    // (only if type symbol not found in compilation)
+                    foreach (KeyValuePair<INamedTypeSymbol, Dictionary<string, ITypeSymbol?>> kv in aggregated)
                     {
                         INamedTypeSymbol typeSymbol = kv.Key;
                         // if the type exists (has a declaration in the compilation) skip
-                        if (Utils.TypeDefinedInCompilation(typeSymbol, compilation)) 
+                        if (Utils.TypeDefinedInCompilation(typeSymbol, compilation))
                             continue;
 
                         // Create propList with correct type
                         // mapNamespaces is Dictionary<INamedTypeSymbol, HashSet<string>> that you populated earlier
-                        mapNamespaces.TryGetValue(typeSymbol, out var nsSet); // typeSymbol = kv.Key's class
+                        bool hasNamespace = mapNamespaces.TryGetValue(typeSymbol, out var nsSet); // typeSymbol = kv.Key's class
                         IEnumerable<(string PropName, string PropType)> propList = kv.Value.Select(kvp =>
                         {
                             var sym = kvp.Value; // ITypeSymbol? (detected)
                             string propTypeStr;
 
                             // If the symbol already exists (e.g. isTeacher -> bool),
-                            // use FriendlyTypeName(sym)
+                            // use GetFriendlyTypeName(sym)
                             if (sym is not null)
                             {
                                 propTypeStr = Utils.GetTypeDisplayString(sym, nsSet);
@@ -388,12 +415,79 @@ namespace GenerateClass.Generator
                             return (PropName: kvp.Key, PropType: propTypeStr);
                         });
 
+                        string nameSpace = config.Namespace ?? typeSymbol.ContainingNamespace.ToDisplayString();
+                        if (!mapClassesToGenerate.ContainsKey((nameSpace, typeSymbol.Name)))
+                        {
+                            mapClassesToGenerate[(nameSpace, typeSymbol.Name)]
+                                = (typeSymbol, propList.ToList(), mapCtor, mapNamespaces);
+                        }
+                        else
+                        {
+                            List<(string propName, string propType)> currentpropList
+                              = mapClassesToGenerate[(nameSpace, typeSymbol.Name)].propList;
+
+                            Dictionary<INamedTypeSymbol, List<(string CtorKey, List<(string Name, ITypeSymbol Type)> Params)>> currentMapCtor
+                              = mapClassesToGenerate[(nameSpace, typeSymbol.Name)].mapCtor;
+
+                            var currentMapNamespaces = mapClassesToGenerate[(nameSpace, typeSymbol.Name)].mapNamespaces;
+
+                            // merge propList, mapCtor, mapNamespaces
+                            currentpropList = currentpropList.Union(propList).ToList();
+
+                            if (mapCtor.ContainsKey(typeSymbol))
+                            {
+                                if (currentMapCtor.TryGetValue(typeSymbol, out var listCtor))
+                                {
+                                    currentMapCtor[typeSymbol] = listCtor.Concat(mapCtor[typeSymbol])
+                                                                         .GroupBy(x => x.CtorKey)
+                                                                         .Select(x => x.First())
+                                                                         .ToList();
+                                }
+                                else
+                                {
+                                    currentMapCtor[typeSymbol] = mapCtor[typeSymbol];
+                                }
+                            }
+
+                            if (hasNamespace)
+                            {
+                                if (currentMapNamespaces.TryGetValue(typeSymbol, out var hashSetNs))
+                                {
+                                    currentMapNamespaces[typeSymbol] = new HashSet<string>(currentMapNamespaces[typeSymbol].Union(nsSet));
+                                }
+                                else
+                                {
+                                    currentMapNamespaces[typeSymbol] = new HashSet<string>(nsSet.Select(x => x));
+                                }
+                            }
+
+                            mapClassesToGenerate[(nameSpace, typeSymbol.Name)]
+                                = (typeSymbol, currentpropList, currentMapCtor, currentMapNamespaces);
+                        }
+                    }
+                }
+
+                // Generate files
+                if (mapClassesToGenerate.Count > 0)
+                {
+                    foreach (var type in mapClassesToGenerate)
+                    {
+                        var typeSymbol = type.Value.typeSymbol;
+                        var propList = type.Value.propList;
+                        var mapCtor = type.Value.mapCtor;
+                        // Add an empty constructor with 0 parameters to mapCtor
+                        if (mapCtor.ContainsKey(typeSymbol))
+                        {
+                            mapCtor[typeSymbol] = mapCtor[typeSymbol].Prepend((CtorKey: "", Params: new List<(string Name, ITypeSymbol Type)>() { }))
+                                                                     .ToList();
+                        }
+                        var mapNamespaces = type.Value.mapNamespaces;
 
                         string generated = Utils.GenerateClassSource(typeSymbol, propList, config, mapCtor, mapNamespaces, spc);
-                        // AddSource — name must be unique
+
+                        // finally add source
                         spc.AddSource(string.Format(GeneratedFileName, typeSymbol.Name), generated);
                     }
-
                 }
             });
         }

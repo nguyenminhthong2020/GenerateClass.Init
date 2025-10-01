@@ -1,7 +1,7 @@
-﻿//using .MyApp.GeneratedDtos;
-using GenerateClass.Generator.Attributes;
+﻿using GenerateClass.Generator.Attributes;
 using Microsoft.AspNetCore.Mvc;
 using MyApp.GeneratedDtos;
+using System.Collections.Concurrent;
 using TestWebAPI.Enum;
 
 namespace TestWebAPI.Controllers
@@ -36,37 +36,60 @@ namespace TestWebAPI.Controllers
             return Ok();
         }
 
-        //[NonAction]
-        //[GenerateClass(GenerateClass.Generator.Enums.Mode.All)]
-        //public async Task<IActionResult> CreateStudent1(Student student, School school)
-        //{
-        //    var obj = new Teacher() { Phone = "0123456789", Mail = "a@gmail.com" };
-        //    Family obj1 = new();
-        //    obj1.Adress = "100/1A, Le Duan street...";
-        //    List<Area> list1 = new List<Area>() { };
-        //    obj1.Students = new List<Student>() { };
-        //    obj1.Classes = new List<TeacherClass>() { };
-        //    var result = new ResponseResult() { NewID = "abcde", isCheck = true };
-        //    return Ok(result);
-        //}
-
-        public enum MyEnum
+        [NonAction]
+        [GenerateClass(GenerateClass.Generator.Enums.Mode.All)]
+        public async Task<IActionResult> CreateStudent1(Student student, School school, MyTestPara<(int, MyTestPara1), MyTestPara2, MyTestPara3<string>> mytestPara)
         {
-            Value1,
-            Value2,
-            Value3
-        }
+            student.HomeMail = "a@gmail.com";
+            var school1 = new School() { SchoolMail = "abc@gmail.com" };
+            var school2 = new School(Id: 10, SchoolPhone: "0123456789");
+            var school3 = new School(SchoolMail: "xyz@gmail.com", SchoolPhone: "0123456789");
+            var school4 = new School(SchoolMail4: "", SchoolPhone4: true, SchoolTest4: "hahah");
 
-        public struct MyStruct
-        {
-            public MyStruct(double x, double y)
+            var testEnumList = new MyTestEnumList() { Prop1 = TestEnum.Y, Prop2 = "a", Prop0 = (-13, "abc", "xyz", false), Prop00 = (Prop00X: 1, Prop00Y: 'c') };
+            var dict = new Dictionary<string, (string, List<(int, char)>)>
             {
-                X = x;
-                Y = y;
-            }
-            public double X { get; }
-            public double Y { get; }
-            public override string ToString() => $"({X}, {Y})";
+                { "mykey", ("a", new List<(int, char)> { (1, 'a') }) }
+            };
+            var testEnumLista = new MyTestEnumList(Prop1: TestEnum.X, PropZ: (TestEnum.Y, -123.567, 1, dict));
+            var testEnumListb = new MyTestEnumList();
+            var testEnumListc = new MyTestEnumList() { };
+            var testEnumListd = new MyTestEnumList()
+            {
+                PropZZ = (TestEnum.Y, -123.567, null, dict),
+                PropZZZ = new
+                {
+                    A = 1,
+                    B = 'X'
+                },
+                PropZZZZ = "abced".Select((c, i) => new { Index = i, Value = c }).ToList()
+            };
+            MyTestEnumList testEnumListe = new();
+            testEnumListe.PropFinalFlash = (1, "abc", null);
+            testEnumListe.PropKamehameha = (1, "abc", 2025, false);
+            testEnumListe.PropMakankosapo = (1, "abc", null, (1, 'a'));
+            testEnumListe.Galickgun = (1, "abc", null, (1, 'a', null));
+
+            var firstTest = new FirstTest()
+            {
+                TestObj10 = Array.Empty<int>(),
+                TestObj11 = "abcedf"
+            };
+
+            var secondTest = new SecondText()
+            {
+                Prop1 = new MyRandomObject1(RandomObject1Property: 'x')
+            };
+
+            var result = new ResponseResult() { };
+            return Ok(result);
+
+
+
+            var myobjX = new MyObjX();
+            var myobjM = new MyObjM(Age: 30, Birthday: "");
+            var myobjZ = new MyObjZ(AgeZ: 30, BirthdayZ: "");
+            return default;
         }
 
         /// <summary>
@@ -77,8 +100,32 @@ namespace TestWebAPI.Controllers
         /// <returns></returns>
         [NonAction]
         [GenerateClass(GenerateClass.Generator.Enums.Mode.All)]
-        public IEnumerable<(WeatherForecast, IEnumerable<ResponseResult>)> CreateStudent2(Student student, School school)
+        public (
+        IEnumerable<(IEnumerable<ResponseClass>, Dictionary<string, (string, List<ResponseClass1>)>)>, 
+        ResponseClass2,
+        ResponseClass3<int>,
+        ResponseClass4<int, char>
+        )
+        CreateStudent2
+        (
+            Student student, 
+            School school,
+            List<int> mylist,
+            List<Test1> myList1,
+            Dictionary<string, (string, List<(int, string)>)> myDict,
+            Dictionary<string, (string, List<(int, Test2)>)> myDict1,
+            (Test3, int) testTuple,
+            TestClass testlass,
+            TestGenericClass<int> testClass1,
+            TestGenericClass<(int, string)> testClass2
+        )
         {
+            var bodyObject = new TestGenericObject1<int>() { };
+            var bodyObject1 = new TestGenericObject1<string>() { };
+            var bodyObject2 = new TestGenericObject2<(int, string)>() { };
+            var bodyObject3 = new TestGenericObject2<(int, Dictionary<int, (string, List<int>)>)>() { };
+            var bodyObject4 = new TestGenericObject2<(int, Dictionary<string, (string, List<MyNewClass>)>)>() { };
+
             var firstTest = new FirstTest()
             {
                 Area = new Area() { },
@@ -97,10 +144,10 @@ namespace TestWebAPI.Controllers
             var obj = new Teacher() { Phone = "0123456789", Mail = "a@gmail.com", Age = 36, Dt = DateTime.Now };
             Family obj1 = new();
             obj1.Adress = "100/1A, Le Duan street...";
-            List<Area> list1 = new List<Area>() { 
-                 new Area() { 
-                     AreProperty1 = -16.789f, 
-                     AreaProperty2 = DateOnly.MinValue, 
+            List<Area> list1 = new List<Area>() {
+                 new Area() {
+                     AreProperty1 = -16.789f,
+                     AreaProperty2 = DateOnly.MinValue,
                      AreaProperty3 = new List<List<string>>()
                     {
                         new List<string>() { "a", "b", "c" },
@@ -114,7 +161,7 @@ namespace TestWebAPI.Controllers
                          A = 1,
                          B = "X"
                      }
-                 } 
+                 }
             };
             obj1.Students = new List<Student>() { };
             obj1.Classes = new List<TeacherClass>() { };
@@ -126,7 +173,7 @@ namespace TestWebAPI.Controllers
             result.RandomNumber5 = -16.789f;
             result.Dict = "abcde".ToDictionary(c => c, c => (int)c);
             result.Hashset = "abcde".ToHashSet();
-            decimal[][] myArr = [[1.5m, 2m, 3M],  [0.6M, 123M, 400m], [18m, 6m]];
+            decimal[][] myArr = [[1.5m, 2m, 3M], [0.6M, 123M, 400m], [18m, 6m]];
             result.Arr = myArr;
             decimal[,] myArr1 = new decimal[,]
             {
@@ -135,7 +182,7 @@ namespace TestWebAPI.Controllers
                 { 18m, 6m, 0m }
             };
             result.Arr1 = myArr1;
-            result.Arr2 = new byte[] {1,2,3,};
+            result.Arr2 = new byte[] { 1, 2, 3, };
             result.Arr3 = new short[] { 1, 3, 4 };
             result.myList1 = new List<List<string>>()
             {
@@ -157,14 +204,57 @@ namespace TestWebAPI.Controllers
 
             result.Dt = DateTime.Now.AddDays(-1).AddMinutes(5);
 
-            var randomList = "abced".Select((c, i) => new { Index = i, Value = c}).ToList();
+            var randomList = "abced".Select((c, i) => new { Index = i, Value = c }).ToList();
             //var randomObject = new MyRandomObject(12, "abc", DateTime.Now, false);
             var randomObject1 = new MyRandomObject1(Age: 12, Name: "abc", Time: DateTime.Now, Checked: false);
             var randomObject2 = new MyRandomObject2(Id: 12, Name: "abc", Time: DateTime.Now, Checked: false);
 
             WeatherForecast defaultWeater = default;
             var response = Enumerable.Range(0, 3).Select(x => (defaultWeater, Enumerable.Repeat(result, 2)));
-            return response;
+            //return response;
+
+            var school4Copy = new School(SchoolMail4: "t", SchoolPhone4: true, SchoolTest4: "uu");
+            var school5 = new School(SchoolMail5: "xyz@gmail.com", SchoolPhone5: "0123456789", S5: false);
+            var school6 = new School(SchoolMail6: "xyz@gmail.com", SchoolPhone6: "0123456789", S6: true, S6x: 123);
+            student.NewStudentProperty = "abcxyed";
+            school.NewSchoolProperty = "abcxyed";
+            var myobjY = new MyObjY();
+            var myobjN = new MyObjN(Age1: 30, Birthday1: "");
+            MyObjZ myObjZ = new();
+            MyObjZ myObjZ1 = new MyObjZ();
+            MyObjZ myObjZ2 = new MyObjZ() { };
+            myObjZ.FinalBoss = "Goku";
+
+            var testEnumList1 = new MyTestEnumList() { Prop3 = new List<int>() { 3, 4, 5 } };
+            var initialData = new Dictionary<int, int> { { 6, 8 } };
+            var testEnumList2 = new MyTestEnumList(Prop4: true, Prop5: new ConcurrentDictionary<int, int>(initialData));
+            var testEnumList3 = new MyTestEnumList(Prop4: false, Prop6: new List<char>() { 'a', 'b' }, Prop7: 3_000_000_000, Prop8: 30_000_000_000);
+
+            MyTestPara3<char> myTestPara3 = new();
+
+
+            var testForTestPara3 = new ConcurrentBag<int>() { 1 };
+            myTestPara3.NewPropertyTest3 = (false, DateTime.Now, null, new List<int>(){ 1 }, (-12f, testForTestPara3, null));
+            return default;
         }
+
+        public enum MyEnum
+        {
+            Value1,
+            Value2,
+            Value3
+        }
+
+        public struct MyStruct
+        {
+            public MyStruct(double x, double y)
+            {
+                X = x;
+                Y = y;
+            }
+            public double X { get; }
+            public double Y { get; }
+            public override string ToString() => $"({X}, {Y})";
+        };
     }
 }

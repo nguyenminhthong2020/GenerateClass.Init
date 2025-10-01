@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace MyApp.GeneratedDtos
+﻿namespace MyApp.GeneratedDtos
 {
 	public class TeacherClass
 	{

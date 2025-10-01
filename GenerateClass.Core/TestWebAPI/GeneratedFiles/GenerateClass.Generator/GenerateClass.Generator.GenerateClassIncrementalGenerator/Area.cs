@@ -1,10 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
-
-namespace MyApp.GeneratedDtos
+﻿namespace MyApp.GeneratedDtos
 {
 	public class Area
 	{
+		/// <summary>
+		/// Id
+		/// </summary>
+		public long Id { get; set; }
+
+		/// <summary>
+		/// Name
+		/// </summary>
+		public string Name { get; set; }
+
 		/// <summary>
 		/// AreProperty1
 		/// </summary>
@@ -34,16 +41,6 @@ namespace MyApp.GeneratedDtos
 		/// AreaProperty6
 		/// </summary>
 		public object AreaProperty6 { get; set; }
-
-		/// <summary>
-		/// Id
-		/// </summary>
-		public long Id { get; set; }
-
-		/// <summary>
-		/// Name
-		/// </summary>
-		public string Name { get; set; }
 
 	}
 }

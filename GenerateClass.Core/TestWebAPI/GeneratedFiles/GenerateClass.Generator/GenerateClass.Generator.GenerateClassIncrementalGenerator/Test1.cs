@@ -1,6 +1,6 @@
 ﻿namespace MyApp.GeneratedDtos
 {
-	public class Decimal
+	public class Test1
 	{
 		/// <summary>
 		/// Id

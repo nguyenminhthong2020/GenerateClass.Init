@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace MyApp.GeneratedDtos
+﻿namespace MyApp.GeneratedDtos
 {
 	public class Student
 	{
@@ -13,6 +11,16 @@ namespace MyApp.GeneratedDtos
 		/// Name
 		/// </summary>
 		public string Name { get; set; }
+
+		/// <summary>
+		/// HomeMail
+		/// </summary>
+		public string HomeMail { get; set; }
+
+		/// <summary>
+		/// NewStudentProperty
+		/// </summary>
+		public string NewStudentProperty { get; set; }
 
 	}
 }

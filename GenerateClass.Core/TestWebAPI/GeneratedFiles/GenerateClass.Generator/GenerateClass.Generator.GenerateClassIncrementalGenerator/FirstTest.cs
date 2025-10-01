@@ -1,10 +1,29 @@
-﻿using System;
-using TestWebAPI.Enum;
+﻿using TestWebAPI.Enum;
 
 namespace MyApp.GeneratedDtos
 {
 	public class FirstTest
 	{
+		/// <summary>
+		/// Id
+		/// </summary>
+		public long Id { get; set; }
+
+		/// <summary>
+		/// Name
+		/// </summary>
+		public string Name { get; set; }
+
+		/// <summary>
+		/// TestObj10
+		/// </summary>
+		public int[] TestObj10 { get; set; }
+
+		/// <summary>
+		/// TestObj11
+		/// </summary>
+		public string TestObj11 { get; set; }
+
 		/// <summary>
 		/// Area
 		/// </summary>
@@ -28,7 +47,7 @@ namespace MyApp.GeneratedDtos
 		/// <summary>
 		/// TestObj3
 		/// </summary>
-		public int? TestObj3 { get; set; }
+		public object TestObj3 { get; set; }
 
 		/// <summary>
 		/// TestObj4
@@ -59,16 +78,6 @@ namespace MyApp.GeneratedDtos
 		/// TestObj9
 		/// </summary>
 		public TestEnum TestObj9 { get; set; }
-
-		/// <summary>
-		/// Id
-		/// </summary>
-		public long Id { get; set; }
-
-		/// <summary>
-		/// Name
-		/// </summary>
-		public string Name { get; set; }
 
 	}
 }

@@ -1,18 +1,26 @@
-﻿using System;
-
-namespace MyApp.GeneratedDtos
+﻿namespace MyApp.GeneratedDtos
 {
 	public class MyRandomObject1
 	{
 		/// <summary>
-		/// Age
+		/// Id
 		/// </summary>
-		public int Age { get; set; }
+		public long Id { get; set; }
 
 		/// <summary>
 		/// Name
 		/// </summary>
 		public string Name { get; set; }
+
+		/// <summary>
+		/// RandomObject1Property
+		/// </summary>
+		public char RandomObject1Property { get; set; }
+
+		/// <summary>
+		/// Age
+		/// </summary>
+		public int Age { get; set; }
 
 		/// <summary>
 		/// Time
@@ -24,12 +32,16 @@ namespace MyApp.GeneratedDtos
 		/// </summary>
 		public bool Checked { get; set; }
 
-		/// <summary>
-		/// Id
-		/// </summary>
-		public long Id { get; set; }
+		public MyRandomObject1()
+		{
+		}
 
-		public MyRandomObject1(int Age, string Name, System.DateTime Time, bool Checked)
+		public MyRandomObject1(char RandomObject1Property)
+		{
+			this.RandomObject1Property = RandomObject1Property;
+		}
+
+		public MyRandomObject1(int Age, string Name, DateTime Time, bool Checked)
 		{
 			this.Age = Age;
 			this.Name = Name;

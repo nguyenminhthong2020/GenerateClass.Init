@@ -1,13 +1,11 @@
-﻿using System;
-
-namespace MyApp.GeneratedDtos
+﻿namespace MyApp.GeneratedDtos
 {
 	public class MyRandomObject2
 	{
 		/// <summary>
 		/// Id
 		/// </summary>
-		public int Id { get; set; }
+		public long Id { get; set; }
 
 		/// <summary>
 		/// Name
@@ -24,7 +22,11 @@ namespace MyApp.GeneratedDtos
 		/// </summary>
 		public bool Checked { get; set; }
 
-		public MyRandomObject2(int Id, string Name, System.DateTime Time, bool Checked)
+		public MyRandomObject2()
+		{
+		}
+
+		public MyRandomObject2(long Id, string Name, DateTime Time, bool Checked)
 		{
 			this.Id = Id;
 			this.Name = Name;

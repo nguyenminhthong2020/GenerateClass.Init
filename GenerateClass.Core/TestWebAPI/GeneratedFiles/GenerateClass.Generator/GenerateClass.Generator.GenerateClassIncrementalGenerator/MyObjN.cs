@@ -1,6 +1,6 @@
 ﻿namespace MyApp.GeneratedDtos
 {
-	public class Family
+	public class MyObjN
 	{
 		/// <summary>
 		/// Id
@@ -13,19 +13,23 @@
 		public string Name { get; set; }
 
 		/// <summary>
-		/// Adress
+		/// Age1
 		/// </summary>
-		public string Adress { get; set; }
+		public int Age1 { get; set; }
 
 		/// <summary>
-		/// Students
+		/// Birthday1
 		/// </summary>
-		public List<Student> Students { get; set; }
+		public string Birthday1 { get; set; }
 
-		/// <summary>
-		/// Classes
-		/// </summary>
-		public List<TeacherClass> Classes { get; set; }
+		public MyObjN()
+		{
+		}
 
+		public MyObjN(int Age1, string Birthday1)
+		{
+			this.Age1 = Age1;
+			this.Birthday1 = Birthday1;
+		}
 	}
 }
