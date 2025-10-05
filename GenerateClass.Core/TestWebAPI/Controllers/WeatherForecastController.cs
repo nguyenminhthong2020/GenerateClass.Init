@@ -1,6 +1,8 @@
 ﻿using GenerateClass.Generator.Attributes;
+using GenerateClass.Generator.Enums;
 using Microsoft.AspNetCore.Mvc;
-using MyApp.GeneratedDtos;
+using MyApp.ModelsDtos;
+using MyApp.ModelsDtos1;
 using System.Collections.Concurrent;
 using TestWebAPI.Enum;
 
@@ -26,18 +28,18 @@ namespace TestWebAPI.Controllers
         [Route("GetWeatherForecast")]
         public IActionResult Get()
         {
-            //return Enumerable.Range(1, 5).Select(index => new WeatherForecast
-            //{
-            //    Date = DateTime.Now.AddDays(index),
-            //    TemperatureC = Random.Shared.Next(-20, 55),
-            //    Summary = Summaries[Random.Shared.Next(Summaries.Length)]
-            //})
-            //.ToArray();
+            _ = Enumerable.Range(1, 5).Select(index => new WeatherForecast
+            {
+                Date = DateTime.Now.AddDays(index),
+                TemperatureC = Random.Shared.Next(-20, 55),
+                Summary = Summaries[Random.Shared.Next(Summaries.Length)]
+            })
+            .ToArray();
             return Ok();
         }
 
         [NonAction]
-        [GenerateClass(GenerateClass.Generator.Enums.Mode.All)]
+        [GenerateClass("ConfigIdGoku", GenerateClass.Generator.Enums.Mode.All)]
         public async Task<IActionResult> CreateStudent1(Student student, School school, MyTestPara<(int, MyTestPara1), MyTestPara2, MyTestPara3<string>> mytestPara)
         {
             student.HomeMail = "a@gmail.com";
@@ -89,26 +91,28 @@ namespace TestWebAPI.Controllers
             var myobjX = new MyObjX();
             var myobjM = new MyObjM(Age: 30, Birthday: "");
             var myobjZ = new MyObjZ(AgeZ: 30, BirthdayZ: "");
+
+            var testRecord = new TestRecord<int, int>()
+            {
+                Items = [1, 2],
+                Item2 = 1
+            };
+            var myTestRecord = new MyTestRecord(Prop: testRecord);
             return default;
         }
 
-        /// <summary>
-        /// Chưa test các kiểu: enum,struct, record
-        /// </summary>
-        /// <param name="student"></param>
-        /// <param name="school"></param>
-        /// <returns></returns>
+
         [NonAction]
-        [GenerateClass(GenerateClass.Generator.Enums.Mode.All)]
+        [GenerateClass("ConfigIdGoku", GenerateClass.Generator.Enums.Mode.All)]
         public (
-        IEnumerable<(IEnumerable<ResponseClass>, Dictionary<string, (string, List<ResponseClass1>)>)>, 
+        IEnumerable<(IEnumerable<ResponseClass>, Dictionary<string, (string, List<ResponseClass1>)>)>,
         ResponseClass2,
         ResponseClass3<int>,
         ResponseClass4<int, char>
         )
         CreateStudent2
         (
-            Student student, 
+            Student student,
             School school,
             List<int> mylist,
             List<Test1> myList1,
@@ -214,7 +218,7 @@ namespace TestWebAPI.Controllers
             //return response;
 
             var school4Copy = new School(SchoolMail4: "t", SchoolPhone4: true, SchoolTest4: "uu");
-            var school5 = new School(SchoolMail5: "xyz@gmail.com", SchoolPhone5: "0123456789", S5: false);
+            var school5 = new School("xyz@gmail.com", false, "0123456789");
             var school6 = new School(SchoolMail6: "xyz@gmail.com", SchoolPhone6: "0123456789", S6: true, S6x: 123);
             student.NewStudentProperty = "abcxyed";
             school.NewSchoolProperty = "abcxyed";
@@ -234,7 +238,244 @@ namespace TestWebAPI.Controllers
 
 
             var testForTestPara3 = new ConcurrentBag<int>() { 1 };
-            myTestPara3.NewPropertyTest3 = (false, DateTime.Now, null, new List<int>(){ 1 }, (-12f, testForTestPara3, null));
+            myTestPara3.NewPropertyTest3 = (false, DateTime.Now, null, new List<int>() { 1 }, (-12f, testForTestPara3, null));
+            return default;
+        }
+
+
+        [NonAction]
+        [GenerateClass("ConfigIdGoku", GenerateClass.Generator.Enums.Mode.All)]
+        public async Task<StudentABC> CreateStudent3()
+        {
+            var testRecord1 = new TestRecord<char, int>()
+            {
+                Items = ['a', 'b', 'c'],
+                Item2 = 1
+            };
+            var myTestRecord = new MyTestRecord() { Prop1 = testRecord1 };
+            return default;
+        }
+
+
+        [NonAction]
+        [GenerateClass("ConfigIdGoku", GenerateClass.Generator.Enums.Mode.All)]
+        public StudentXYZ CreateStudent4()
+        {
+            var TestlocalFunction1 = (int x, LocalFunction1 lcf1) =>
+            {
+                var tlf1x = new LocalFunction1x
+                {
+                    Prop1 = 1,
+                    Prop2 = "a",
+                    Prop3 = (1, "abc", null),
+                    Prop4 = (1, false),
+                    PropNewNew = 12_921,
+                    PropNewNew1 = "b",
+                };
+                var tlf1y = new LocalFunction1y(
+                                 Prop1: 1,
+                                 Prop2: new LocalFunction1yClass()
+                                 {
+                                     Prop1Y = "a",
+                                     Prop1YY = (1, "a", null, new List<int>() { 1, 2, 3 })
+                                 }
+                                 );
+                return new LocalFunction1z(
+                                 Prop1: 123,
+                                 Prop2: new LocalFunction1zClass()
+                                 {
+                                     Prop1Z = "a",
+                                     Prop1ZZ = new Prop1ZZClass() { PropFinal = false, PropFinal1 = (2, "x", null) },
+                                     Prop1ZZZ = (1, "abc", null),
+                                 });
+            };
+
+
+            string TestlocalFunction2(int x, LocalFunction2 lcf1)
+            {
+                var tlf1yNew = new LocalFunction1y(Prop3: 100);
+
+                var tlf1x = new LocalFunction2x
+                {
+                    Prop1 = 1,
+                    Prop2 = "a",
+                    Prop3 = (1, "abc", null),
+                    Prop4 = (1, false)
+                };
+                var tlf1y = new LocalFunction2y(
+                                 Prop1: 1,
+                                 Prop2: new LocalFunction2yClass()
+                                 {
+                                     Prop1Y = "a",
+                                     Prop1YY = (1, "a", null, new List<int>() { 1, 2, 3 })
+                                 }
+                                 );
+                _ = new LocalFunction2z(
+                                 Prop1: 123,
+                                 Prop2: new LocalFunction2zClass()
+                                 {
+                                     Prop1Z = "a",
+                                     Prop1ZZ = new Prop2ZZClass() { PropFinal = false, PropFinal1 = (2, "x", null) },
+                                     Prop1ZZZ = (1, "abc", null),
+                                 });
+
+                return "";
+            }
+        ;
+            LocalFunction3 TestlocalFunction3(int x, LocalFunction3x lcf3)
+            {
+                return default;
+            }
+        ;
+
+            var testLambdaExpression1 = new List<(int Key, ValueLambda Value)>() {
+                                                 (1, new ValueLambda(){Prop1 = 2, Prop2 = "x"}),
+                                                 (2, new ValueLambda(){Prop3 = 5, Prop4 = (1, "Abc", null, ('a', false, null, new int[]{1,2,3 }))}),
+                                          }
+                                         .Select(x => new TestLambdaExpression1() { Prop1 = x.Key })
+                                         .ToList();
+            var testLambdaExpression2 = new List<int>() { 1, 2, 3 }
+                                 .Select(x => new TestLambdaExpression2(Prop2: x)).ToList();
+            var testLambdaStatement1 = new List<int>() { 5, 6 }.Select(x =>
+            {
+                var obj1 = new TestLambdaStatement1() { Prop1 = x };
+                var obj2 = new TestLambdaStatement1x(Prop2: "a");
+                return new TestLambdaStatement1y(Obj1: obj1, Obj2: obj2);
+            }).ToList();
+            string s = "abc";
+            new List<int>() { 1, 2, 3 }.ForEach(a =>
+            {
+                object tt = default;
+                var newTestObjList = new newTestObjListClass(A1: "a", B1: (1, "a", tt, ('k', null)));
+                s += a;
+            });
+
+            Action<(TestAction, string), int> TestDelegateAction1 = (para1, para2)
+                    => Console.WriteLine($"Para1: {para1.Item2}, Para2: {para2}");
+
+            Action<(TestAction, string), int> TestDelegateAction2 = (para1, para2) =>
+            {
+                var obj1 = new DelegateAction2() { Prop1 = para1.Item1 };
+                var obj1x = new DelegateAction2(Prop1x: para1.Item1);
+                var obj2 = new DelegateAction2() { Prop2 = (1, "abc", null), prop3 = (1, "a", (true, 3, null)) };
+                var obj3 = new DelegateAction2x()
+                {
+                    Prop1 = new List<(int, InsideClass<int, string>)>() { (1, new()), (2, new()) }
+                };
+                Console.WriteLine($"Para1: {para1.Item2}, Para2: {para2}"); ;
+            };
+
+            //Func<(int, (string, TestFunc1)), int, string> testDelegateFunc1 = (a, b) => string.Empty;
+            Func<(TestFunc2, string), int, int> TestDelegateFunc2a = (para1, para2) =>
+            {
+                var obj1New = new DelegateAction2() { Prop1New = para1.Item1 };
+
+                var obj2 = new DelegateFunc2x() { Prop2 = (1, "abc", null), prop3 = (1, "a", (true, 3, "null")) };
+                var obj3 = new DelegateFunc2y()
+                {
+                    Prop1 = new List<int>() { 1, 2, 3 }
+                };
+
+                var TestlocalFunction1Za = (int x, LocalFunction1z lcf1) =>
+                {
+                    var tlf1yZ = new LocalFunction1y(
+                                     1,
+                                     new LocalFunction1yClass()
+                                     {
+                                         Prop1Y = "a",
+                                         Prop1YY = (1, "a", null, new List<int>() { 1, 2, 3 })
+                                     }
+                                     );
+                    var tlf1yZZZ = new LocalFunction1yZZ(
+                                     PropA: 1,
+                                     PropB: new LocalFunction1yClass(Prop1YY1: (1, "a", null, new List<int>() { 1, 2, 3 }))
+                                     );
+                    _ = new LocalFunction1z(
+                                     Prop55: "K",
+                                     Prop66: new LocalFunction1zClass()
+                                     {
+                                         Prop1Z = "a",
+                                         Prop1ZZ = new Prop1ZZClass() { PropFinal = false, PropFinal1 = (2, "x", null) },
+                                         Prop1ZZZ = (1, "abc", null),
+                                     });
+                };
+
+                return 1000;
+            };
+
+            void TestComplexFunc<T>(
+            IEnumerable<T> data,
+            Func<T, bool> filter,
+            Action<T> action,
+            Func<TestComplexFunc1, int> func1,
+            Action<TestComplexFunc2> action1,
+            Func<(TestComplexFunc2, int), int> func2)
+            {
+                foreach (var item in data.Where(filter))
+                {
+                    var TestlocalFunction1ZGoku = (int x, LocalFunction1ZGoku lcf1) =>
+                    {
+                        var tlf1yZZZ = new LocalFunction1yZZ(
+                                         1,
+                                         new LocalFunction1yClass(Prop1YY1: (1, "a", null, new List<int>() { 1, 2, 3 }))
+                                         );
+                        return new LocalFunction1ZGoku(
+                                         Prop55: "K",
+                                         Prop66: new LocalFunction1zClass()
+                                         {
+                                             Prop1Z = "a",
+                                             Prop1ZZ = new Prop1ZZClass() { PropFinal = false, PropFinal1 = (2, "x", null) },
+                                             Prop1ZZZ = (1, "abc", null),
+                                         });
+                    };
+                    action(item);
+                }
+
+                string s1 = "abc";
+                new List<int>() { 1, 2, 3 }.ForEach(a =>
+                {
+                    object tt1 = default;
+                    var newTestObjList1 = new newTestObjListClass1(A1: "a", B1: (1, "a", tt1, ('k', null)));
+                    s1 += a;
+                });
+            }
+
+            return default;
+        }
+
+        [NonAction]
+        [GenerateClass("ConfigIdVegeta", GenerateClass.Generator.Enums.Mode.All)]
+        public async Task<IActionResult> CreateStudent5()
+        {
+            var obj1 = new TestCreateStudent5a();
+            var obj2 = new TestCreateStudent5a() { };
+            var obj3 = new TestCreateStudent5a() {  Prop1 = 1, Prop2 = "a"};
+
+            var obj4 = new TestCreateStudent5a(Prop3: 1, Prop4 : "a");
+            var obj5 = new TestCreateStudent5a(2, "b");
+
+            var obj6 = new TestCreateStudent5a("b", 1);
+            var obj7 = new TestCreateStudent5a() { Prop1 = 10, Prop4 = "aa" };
+
+            var object1 = new TestCreateStudent5b(1, "a");
+
+            // special case: null, object
+            //var obj8 = new TestCreateStudent5a()
+            return default;
+        }
+
+        /// <summary>
+        /// JWT, Redis, Kafka, HttpClient, Dapper, EF, MongoDB, Quartz
+        /// Newtonsoft.Json, DynamicExpresso, 
+        /// NPOI / DotNetCore.NPOI, CsvHelper, EPPlus, HtmlToOpenXml, DiffMatchPatch, DocumentFormat.OpenXml
+        /// QRCoder, System.Drawing.Common, ZXing.Net
+        /// </summary>
+        /// <returns></returns>
+        [NonAction]
+        [GenerateClass("ConfigIdVegeta", Mode.Body | Mode.Parameter)]
+        public async Task<IActionResult> TestOther(TestOther1 testother1)
+        {
+
             return default;
         }
 

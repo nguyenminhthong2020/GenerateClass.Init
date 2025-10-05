@@ -2,27 +2,36 @@
 {
     public class GenerateClassOption
     {
+        public string ConfigId { get; set; } = string.Empty;
         public string? Path { get; set; } = "./Models/";
         public bool? Enabled { get; set; } = true;
         public string? Namespace { get; set; } = null;
-        public Dictionary<string, string>? RequiredProperties { get; set; } = new Dictionary<string, string>();
+        public Dictionary<string, object>? RequiredProperties { get; set; } = new Dictionary<string, object>();
     }
 
     public static class GenerateClassServiceCollectionExtensions
     {
-        public static IServiceCollection AddGenerateClass(this IServiceCollection services, Action<GenerateClassOption> configure)
+        public static IServiceCollection AddGenerateClass(
+        this IServiceCollection services,
+        IEnumerable<GenerateClassOption> options)
         {
-            GenerateClassOption opts = new GenerateClassOption();
-            configure(opts);
-            services.AddSingleton(opts);
+            foreach (var opt in options)
+            {
+                services.AddSingleton(opt);
+            }
             return services;
         }
 
-        public static IServiceCollection AddGenerateClass(this IServiceCollection services, GenerateClassOption opts)
+        public static IServiceCollection AddGenerateClass(
+        this IServiceCollection services,
+        Func<IServiceProvider, IEnumerable<GenerateClassOption>> factory)
         {
-            services.AddSingleton(opts);
+            var options = factory(services.BuildServiceProvider());
+            foreach (var opt in options)
+            {
+                services.AddSingleton(opt);
+            }
             return services;
         }
     }
-
 }

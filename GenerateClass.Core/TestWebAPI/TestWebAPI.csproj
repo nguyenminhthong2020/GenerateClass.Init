@@ -7,8 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
 
 	  <!-- Để xuất ra file vật lý -->
-	  <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
-	  <CompilerGeneratedFilesOutputPath>GeneratedFiles</CompilerGeneratedFilesOutputPath>
+	  <!--<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+	  <CompilerGeneratedFilesOutputPath>GeneratedFiles</CompilerGeneratedFilesOutputPath>-->
+	  <!--<GeneratedFolder>MyGen</GeneratedFolder>-->
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-	  <ProjectReference Include="..\GenerateClass.Core\GenerateClass.Core.csproj" />
+	  <ProjectReference Include="..\GenerateClass.Core\GenerateClass.Config.csproj" />
 	  <ProjectReference Include="..\GenerateClass.Generator\GenerateClass.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 

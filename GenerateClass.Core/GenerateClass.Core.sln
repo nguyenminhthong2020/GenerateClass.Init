@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestWebAPI", "TestWebAPI\Te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenerateClass.Generator", "GenerateClass.Generator\GenerateClass.Generator.csproj", "{98458C16-2D02-4E23-8B4C-A685A6EB3CC5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenerateClass.Core", "GenerateClass.Core\GenerateClass.Core.csproj", "{5552135D-8FC4-41FF-9CB5-6B295EFC2884}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenerateClass.Config", "GenerateClass.Core\GenerateClass.Config.csproj", "{5552135D-8FC4-41FF-9CB5-6B295EFC2884}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

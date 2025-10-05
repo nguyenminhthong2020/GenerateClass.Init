@@ -12,10 +12,12 @@ namespace GenerateClass.Generator.Attributes
         /// All
         /// </summary>
         public Mode Mode { get; }
+        public string ConfigId { get; }
 
-        public GenerateClassAttribute(Mode mode = Mode.All)
+        public GenerateClassAttribute(string configId, Mode mode = Mode.All)
         {
             Mode = mode;
+            ConfigId = configId;
         }
     }
 }
